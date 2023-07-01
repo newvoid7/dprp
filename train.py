@@ -201,8 +201,8 @@ def train_vos(base_dir=DATASET_DIR, fold=0, n_epoch=500, batch_size=8):
 
 
 if __name__ == '__main__':
-    os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
     for n_fold in range(4):
-        # train_profen(fold=n_fold)
+        train_profen(fold=n_fold)
         # train_affine2d(fold=n_fold)
-        train_vos(fold=n_fold)
+        # train_vos(fold=n_fold)

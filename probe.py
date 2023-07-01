@@ -8,6 +8,7 @@ import numpy as np
 from render import PRRenderer
 
 from utils import time_it, quaternion_from_view_up, quaternion_rotate_vec, quaternion_to_matrix
+from paths import DATASET_DIR
 
 
 DEFAULT_ORIENTATION = [0, 0, -1]
@@ -190,8 +191,8 @@ def ablation_num_of_probes(probe_list, factor=2):
 
 
 if __name__ == '__main__':
-    os.environ['PYOPENGL_PLATFORM'] = 'egl'
-    base_dir = '../2d3d_dataset'
+    # os.environ['PYOPENGL_PLATFORM'] = 'egl'
+    base_dir = DATASET_DIR
     cases = [name for name in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, name))]
     for case in cases:
         os.makedirs('results/{}'.format(case), exist_ok=True)

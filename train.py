@@ -123,8 +123,10 @@ def train_profen(base_dir=DATASET_DIR, fold=0, n_epoch=300, batch_size=8,
         epoch_loss.append(iter_loss)
         print('epoch[{}/{}], loss: {}'.format(epoch + 1, n_epoch, iter_loss.mean()))
         if (epoch + 1) % 10 == 0:
-            torch.save(fe.state_dict(), 'weights/fold{}/profen_abl_loss_{}.pth'.format(fold, epoch + 1))
-    np.save('weights/fold{}/profen_abl_loss_loss.npy'.format(fold), np.asarray(epoch_loss))
+            torch.save(fe.state_dict(), 'weights/fold{}/profen{}_{}.pth'
+                       .format(fold, '' if use_ref_info_nce else '_infonce', epoch + 1))
+    np.save('weights/fold{}/profen{}.npy'.format(fold, '' if use_ref_info_nce else '_infonce'),
+            np.asarray(epoch_loss))
     return
 
 
@@ -206,3 +208,6 @@ if __name__ == '__main__':
         train_profen(fold=n_fold)
         # train_affine2d(fold=n_fold)
         # train_vos(fold=n_fold)
+    # Ablation of loss function
+    for n_fold in range(4):
+        train_profen(fold=n_fold, use_ref_info_nce=False)

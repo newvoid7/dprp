@@ -55,13 +55,11 @@ class InfoNCELoss(nn.Module):
         # for each feature, 1 positive pair
         positive_pairs = torch.stack([matrix[i, i] for i in range(bs)], dim=0)
         # for each feature, (2B - 2) negative pairs
-        negative_pairs = torch.cat([
-            torch.cat([
-                torch.stack([
-                    matrix[i, j]
-                    for j in range(bs * 2) if j != i and j != (i + bs)
-                ], dim=1)
-            ], dim=1)
+        negative_pairs = torch.stack([
+            torch.stack([
+                matrix[i, j]
+                for j in range(bs * 2) if j != i and j != (i + bs)
+            ], dim=0)
             for i in range(bs)
         ], dim=0)
         loss = -torch.log(positive_pairs / (negative_pairs.sum(dim=-1) + self.eps))

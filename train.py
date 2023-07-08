@@ -13,7 +13,7 @@ from network.loss import MultiCELoss, RefInfoNCELoss, InfoNCELoss
 from network.vos import LSTMVOSWithSC
 from dataloaders import VOSDataloader, ProbeSingleCaseDataloader
 from probe import deserialize_probes, Probe, ablation_num_of_probes
-from utils import resized_center_square, cv2_to_tensor
+from utils import resized_center_square, cv2_to_tensor, select_best_weight
 from paths import ALL_CASES, DATASET_DIR
 
 
@@ -206,8 +206,12 @@ if __name__ == '__main__':
     # os.environ['CUDA_VISIBLE_DEVICES'] = '0'
     # for n_fold in range(4):
     #     train_profen(fold=n_fold)
-        # train_affine2d(fold=n_fold)
-        # train_vos(fold=n_fold)
+    #     train_affine2d(fold=n_fold)
+    #     train_vos(fold=n_fold)
     # Ablation of loss function
+    # for n_fold in range(4):
+    #     train_profen(fold=n_fold, use_ref_info_nce=False)
     for n_fold in range(4):
-        train_profen(fold=n_fold, use_ref_info_nce=False)
+        select_best_weight(['weights/fold{}/profen_{}.pth'.format(n_fold, (i + 1) * 10) for i in range(30)],
+                           'weights/fold{}/profen.npy'.format(n_fold),
+                           'weights/fold{}/profen_best.pth'.format(n_fold))

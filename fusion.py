@@ -17,6 +17,7 @@ from network.track import TrackerKP
 from utils import resized_center_square, make_channels, tensor_to_cv2, cv2_to_tensor, time_it, images_alpha_lighten
 from probe import Probe, deserialize_probes, ablation_num_of_probes
 from train import set_fold
+from paths import DATASET_DIR
 
 CASE_INFO = {
     'GongDaoming': 'type1',
@@ -359,7 +360,7 @@ def evaluate(predict, label):
 
 
 def alpha_test(fold=0, abl_factor=None):
-    base_dir = '../2d3d_dataset'
+    base_dir = DATASET_DIR
     _, test_cases = set_fold(fold)
     for case_id in test_cases:
         case_dir = os.path.join(base_dir, case_id)
@@ -373,9 +374,9 @@ def alpha_test(fold=0, abl_factor=None):
         height, width = cv2.imread(os.path.join(case_dir, filenames[0])).shape[:-1]
         registrator = Registrator(
             mesh_path=mesh_path, probes=probes,
-            profen_pth=('weights/profen_fold{}_best.pth'.format(fold) if abl_factor is None else
-                        'weights/profen_abl{}_fold{}_best.pth'.format(abl_factor, fold)),
-            affine2d_pth='weights/affine2d_fold{}_best.pth'.format(fold),
+            profen_pth=('weights/fold{}/profen_best.pth'.format(fold) if abl_factor is None else
+                        'weights/fold{}/profen_abl{}_best.pth'.format(fold, abl_factor)),
+            affine2d_pth='weights/fold{}/affine2d_best.pth'.format(fold),
             image_size=(height, width), window_size=3
         )
         result_dir = 'results_coarse_{}'.format(abl_factor) if abl_factor is not None else 'results'

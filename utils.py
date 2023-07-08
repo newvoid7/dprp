@@ -1,3 +1,4 @@
+import os
 import time
 
 import cv2
@@ -342,7 +343,14 @@ def matrix_from_7_parameters(param):
         [2 * b * d - 2 * a * c, 2 * a * b + 2 * c * d, 1 - 2 * b * b - 2 * c * c, z],
         [0, 0, 0, 1]
     ])
-    return
+
+
+def select_best_weight(weights_paths, loss_path, best_path):
+    loss_array = np.load(loss_path)
+    mean_loss = loss_array.mean(-1)
+    inter = len(mean_loss) // len(weights_paths)
+    best_index = (mean_loss[(inter - 1)::inter].argmin() + 1) * inter
+    os.system('cp {} {}'.format(weights_paths[best_index], best_path))
 
 
 if __name__ == '__main__':

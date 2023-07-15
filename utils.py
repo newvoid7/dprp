@@ -351,6 +351,7 @@ def select_best_weight(weights_paths, loss_path, best_path):
     mean_loss = loss_array.mean(-1)
     inter = len(mean_loss) // len(weights_paths)
     best_index = mean_loss[(inter - 1)::inter].argmin()
+    plt.figure()
     plt.plot(np.arange(len(mean_loss)), mean_loss)
     plt.xlabel('epoch')
     plt.ylabel('loss')

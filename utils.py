@@ -4,6 +4,7 @@ import time
 import cv2
 import numpy as np
 import torch
+import matplotlib.pyplot as plt
 
 
 def time_it(func):
@@ -350,10 +351,24 @@ def select_best_weight(weights_paths, loss_path, best_path):
     mean_loss = loss_array.mean(-1)
     inter = len(mean_loss) // len(weights_paths)
     best_index = (mean_loss[(inter - 1)::inter].argmin() + 1) * inter
+    plt.plot(np.arange(len(mean_loss)), mean_loss)
+    plt.xlabel('epoch')
+    plt.ylabel('loss')
+    plt.savefig(loss_path[:loss_path.rfind('.')] + '.png')
     os.system('cp {} {}'.format(weights_paths[best_index], best_path))
+    print('Choose {} for the best weights, with loss at {}.'.format(
+        weights_paths[best_index], mean_loss[best_index]
+    ))
 
 
 if __name__ == '__main__':
+    for fold in range(4):
+        select_best_weight(['weights/fold{}/profen_{}.pth'.format(fold, i * 10 + 10) for i in range(30)],
+                           'weights/fold{}/profen.npy'.format(fold),
+                           'weights/fold{}/profen_best.pth'.format(fold))
+        select_best_weight(['weights/fold{}/profen_infonce_{}.pth'.format(fold, i * 10 + 10) for i in range(30)],
+                           'weights/fold{}/profen_infonce.npy'.format(fold),
+                           'weights/fold{}/profen_infonce_best.pth'.format(fold))
     view0 = np.asarray([0, 0, -1], dtype=float)
     up0 = np.asarray([0, 1, 0], dtype=float)
     view1 = np.asarray([

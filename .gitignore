@@ -1,3 +1,5 @@
 .idea
 weights/
 results*/
+log*
+*.pyc

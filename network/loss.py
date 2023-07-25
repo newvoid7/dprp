@@ -46,6 +46,9 @@ class InfoNCELoss(nn.Module):
         return
 
     def forward(self, f, noise):
+        """
+        Theoretical average min is 
+        """
         bs = f.size()[0]
         cat_f_agent = torch.cat([noise, f], dim=0)
         # matrix: row i are 2bs pairs of f[i]: f0, f1, ..., a0, a1, ...

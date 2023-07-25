@@ -363,13 +363,6 @@ def select_best_weight(weights_paths, loss_path, best_path):
 
 
 if __name__ == '__main__':
-    for fold in range(4):
-        select_best_weight(['weights/fold{}/profen_{}.pth'.format(fold, i * 10 + 10) for i in range(30)],
-                           'weights/fold{}/profen.npy'.format(fold),
-                           'weights/fold{}/profen_best.pth'.format(fold))
-        select_best_weight(['weights/fold{}/profen_infonce_{}.pth'.format(fold, i * 10 + 10) for i in range(30)],
-                           'weights/fold{}/profen_infonce.npy'.format(fold),
-                           'weights/fold{}/profen_infonce_best.pth'.format(fold))
     view0 = np.asarray([0, 0, -1], dtype=float)
     up0 = np.asarray([0, 1, 0], dtype=float)
     view1 = np.asarray([

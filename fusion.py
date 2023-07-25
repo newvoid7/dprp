@@ -426,9 +426,7 @@ def alpha_test(fold=0, abl_factor=None):
 
 
 if __name__ == '__main__':
-    os.environ['CUDA_VISIBLE_DEVICES'] = '3'
+    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
     os.environ['PYOPENGL_PLATFORM'] = 'egl'
     for n_fold in range(4):
-        alpha_test(n_fold, abl_factor=3)
-
-    # human time: 9860, 8950, 6830, 10060, 7500, 8180, 6580, 9460
+        alpha_test(n_fold)

@@ -183,6 +183,8 @@ def ablation_num_of_probes(probe_list, factor=2):
     Returns:
         list of Probe:
     """
+    if factor is None:
+        return probe_list
     ret_list = []
     for i, p in enumerate(probe_list):
         if (i // 17) % factor == 0 and (i % 17 % factor) == 0:

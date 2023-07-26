@@ -101,7 +101,7 @@ class Registrator:
         self.probe_feature = [self.feature_extractor(torch.from_numpy(r).unsqueeze(0).cuda()).detach().cpu()
                               for r in self.probe_render_2ch]
 
-        self.tracker = TrackerKP()
+        self.tracker = None
 
         self.window_size = window_size
         self.frame_window = []
@@ -230,6 +230,10 @@ class Registrator:
             probe_render.unsqueeze(0), segmentation.unsqueeze(0), cv2_to_tensor(re_rendered).unsqueeze(0))
         aligned = (images_alpha_lighten(frame, transformed / transformed.max(), 0.5) * 255).astype(np.uint8)
         return aligned, re_rendered, transformed, affine_factor
+
+    def init_tracker(self, image, segmentation):
+        self.tracker = TrackerKP(image, segmentation)
+        return
 
     @time_it
     def add_frame(self, frame, segment, prior_type='type1'):
@@ -389,6 +393,8 @@ def alpha_test(fold=0, abl_factor=None):
                 continue
             photo = cv2.imread(photo_path)
             orig_segment = cv2.imread(label_path)
+            if i == 0:
+                registrator.init_tracker(photo, orig_segment)
             segment = resized_center_square(orig_segment, out_size=512).transpose((2, 0, 1))
             segment = make_channels(segment, [
                 lambda x: x[2] != 0,

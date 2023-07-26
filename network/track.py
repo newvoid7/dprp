@@ -30,7 +30,7 @@ class TrackerKP:
 
         Args:
             init_frame (np.ndarray):
-            init_mask:
+            init_mask (np.ndarray):
         """
         self.orb_detector = cv2.ORB_create(500)
         self.matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)

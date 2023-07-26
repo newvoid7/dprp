@@ -426,7 +426,7 @@ def alpha_test(fold=0, abl_factor=None):
 
 
 if __name__ == '__main__':
-    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+    os.environ['CUDA_VISIBLE_DEVICES'] = '2'
     os.environ['PYOPENGL_PLATFORM'] = 'egl'
     for n_fold in range(4):
         alpha_test(n_fold)

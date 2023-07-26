@@ -162,8 +162,8 @@ def train_affine2d(base_dir=DATASET_DIR, fold=0, n_epoch=300, batch_size=8):
         epoch_loss.append(iter_loss)
         print('epoch[{}/{}], loss: {}'.format(epoch + 1, n_epoch, iter_loss.mean()))
         if (epoch + 1) % 10 == 0:
-            torch.save(predictor.state_dict(), 'weights/fold{}/affine2d_train_{}.pth'.format(fold, epoch + 1))
-    np.save('weights/fold{}/affine2d_loss.npy'.format(fold), np.asarray(epoch_loss))
+            torch.save(predictor.state_dict(), 'weights/fold{}/affine2d_{}.pth'.format(fold, epoch + 1))
+    np.save('weights/fold{}/affine2d.npy'.format(fold), np.asarray(epoch_loss))
     return
 
 
@@ -204,17 +204,20 @@ def train_vos(base_dir=DATASET_DIR, fold=0, n_epoch=500, batch_size=8):
 
 if __name__ == '__main__':
     os.environ['CUDA_VISIBLE_DEVICES'] = '0'
-    for n_fold in range(4):
+    # for n_fold in range(4):
     #     train_profen(fold=n_fold)
-        train_affine2d(fold=n_fold)
+    #     train_affine2d(fold=n_fold)
     #     train_vos(fold=n_fold)
     # Ablation of loss function
     # for n_fold in range(4):
     #     train_profen(fold=n_fold, use_ref_info_nce=False)
-    # for fold in range(4):
+    for fold in range(4):
     #     select_best_weight(['weights/fold{}/profen_{}.pth'.format(fold, i * 10 + 10) for i in range(30)],
     #                        'weights/fold{}/profen.npy'.format(fold),
     #                        'weights/fold{}/profen_best.pth'.format(fold))
     #     select_best_weight(['weights/fold{}/profen_infonce_{}.pth'.format(fold, i * 10 + 10) for i in range(30)],
     #                        'weights/fold{}/profen_infonce.npy'.format(fold),
     #                        'weights/fold{}/profen_infonce_best.pth'.format(fold))
+        select_best_weight(['weights/fold{}/affine2d_{}.pth'.format(fold, i * 10 + 10) for i in range(30)],
+                           'weights/fold{}/affine2d.npy'.format(fold),
+                           'weights/fold{}/affine2d_best.pth'.format(fold))

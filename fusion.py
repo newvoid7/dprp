@@ -363,7 +363,7 @@ def evaluate(predict, label):
     }
 
 
-def alpha_test(fold=0, abl_factor=None):
+def alpha_test(fold=0, **kwargs):
     base_dir = DATASET_DIR
     _, test_cases = set_fold(fold)
     for case_id in test_cases:
@@ -372,18 +372,26 @@ def alpha_test(fold=0, abl_factor=None):
         filenames = [fn for fn in os.listdir(case_dir) if fn.endswith('.jpg') or fn.endswith('.png')]
         filenames.sort(key=lambda x: int(x[:-4]))
         probes = deserialize_probes('results/{}/probes.pk'.format(case_id))
-        probes = ablation_num_of_probes(probes, factor=abl_factor)                        # TODO ablation num_of_probes
         # give a new mesh to re-render in the fusion result
         mesh_path = os.path.join(case_dir, 'kidney_tumor_artery_vein.obj')
         height, width = cv2.imread(os.path.join(case_dir, filenames[0])).shape[:-1]
+        profen_path = 'weights/fold{}/profen_best.pth'.format(fold)
+        result_dir = 'results'
+        if 'ablation_number_of_probes' in kwargs.keys():
+            factor = kwargs['ablation_number_of_probes']
+            probes = ablation_num_of_probes(probes, factor=factor)
+            profen_path = 'weights/fold{}/profen_abl{}_best.pth'.format(fold, factor)
+            result_dir = 'results_abl{}'.format(factor)
+        if 'ablation_loss_function' in kwargs.keys():
+            name = kwargs['ablation_loss_function']
+            profen_path = 'weights/fold{}/profen_{}_best.pth'.format(fold, name)
+            result_dir = 'result_{}'.format(name)
         registrator = Registrator(
             mesh_path=mesh_path, probes=probes,
-            profen_pth=('weights/fold{}/profen_best.pth'.format(fold) if abl_factor is None else
-                        'weights/fold{}/profen_abl{}_best.pth'.format(fold, abl_factor)),
+            profen_pth=profen_path,
             affine2d_pth='weights/fold{}/affine2d_best.pth'.format(fold),
             image_size=(height, width), window_size=3
         )
-        result_dir = 'results_coarse_{}'.format(abl_factor) if abl_factor is not None else 'results'
         os.makedirs(os.path.join('{}/{}/fusion'.format(result_dir, case_id)), exist_ok=True)
         evaluations = {}
         for i, fn in enumerate(filenames):
@@ -435,4 +443,4 @@ if __name__ == '__main__':
     os.environ['CUDA_VISIBLE_DEVICES'] = '2'
     os.environ['PYOPENGL_PLATFORM'] = 'egl'
     for n_fold in range(4):
-        alpha_test(n_fold)
+        alpha_test(n_fold, ablation_loss_function='infonce')

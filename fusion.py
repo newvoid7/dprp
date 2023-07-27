@@ -440,7 +440,9 @@ def alpha_test(fold=0, **kwargs):
 
 
 if __name__ == '__main__':
-    os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
     os.environ['PYOPENGL_PLATFORM'] = 'egl'
     for n_fold in range(4):
+        alpha_test(n_fold)
         alpha_test(n_fold, ablation_loss_function='infonce')
+        # alpha_test(n_fold, ablation_number_of_probes=2)

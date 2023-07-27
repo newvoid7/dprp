@@ -193,7 +193,7 @@ def ablation_num_of_probes(probe_list, factor=2):
 
 
 if __name__ == '__main__':
-    # os.environ['PYOPENGL_PLATFORM'] = 'egl'
+    os.environ['PYOPENGL_PLATFORM'] = 'egl'
     base_dir = DATASET_DIR
     cases = [name for name in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, name))]
     for case in cases:

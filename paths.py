@@ -8,4 +8,4 @@ ALL_CASES = [d for d in os.listdir(DATASET_DIR)
              and not d.startswith('.')]
 VOLUME_FILENAME = 'orig.nii.gz'
 MESH_FILENAME = 'mesh.gltf'
-PROBE_FILENAME = 'probes.pk'
+PROBE_FILENAME = 'probes.npz'

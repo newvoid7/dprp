@@ -1,7 +1,9 @@
-opencv-python~=4.8.0.74
-numpy~=1.24.4
-torch~=2.0.1+cu118
-torchvision~=0.15.2+cu118
-pyrender~=0.1.45
-trimesh~=3.22.3
-batchgenerators~=0.25
+torch
+torchvision
+--index-url=https://download.pytorch.org/whl/nightly/cu121
+
+opencv-python
+numpy
+pyrender
+trimesh
+batchgenerators

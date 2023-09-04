@@ -10,6 +10,7 @@ import torch.nn.functional as nnf
 import cv2
 import SimpleITK as sitk
 
+import paths
 from render import PRRenderer
 from network.profen import ProFEN
 from network.affine2d import Affine2dPredictor, Affine2dTransformer
@@ -371,7 +372,7 @@ def alpha_test(fold=0, **kwargs):
         case_type = CASE_INFO[case_id]
         filenames = [fn for fn in os.listdir(case_dir) if fn.endswith('.jpg') or fn.endswith('.png')]
         filenames.sort(key=lambda x: int(x[:-4]))
-        probes = deserialize_probes('results/{}/probes.pk'.format(case_id))
+        probes = deserialize_probes(os.path.join(paths.RESULTS_DIR, case_id, paths.PROBE_FILENAME))
         # give a new mesh to re-render in the fusion result
         mesh_path = os.path.join(case_dir, 'kidney_tumor_artery_vein.obj')
         height, width = cv2.imread(os.path.join(case_dir, filenames[0])).shape[:-1]

@@ -18,7 +18,7 @@ class PRRenderer:
         light: directional light, try to keep it same with the camera TODO default direction?
 
     """
-    def __init__(self, mesh_path, out_size=512):
+    def __init__(self, mesh_path, out_size=512, normalize=True):
         """
         Need to add the environmental variable when creating.
         os.environ['PYOPENGL_PLATFORM'] = 'egl'
@@ -39,7 +39,18 @@ class PRRenderer:
         self.mesh = pyrender.Mesh.from_trimesh(list(orig_mesh.geometry.values()))
         self.camera = pyrender.PerspectiveCamera(yfov=np.pi / 3, aspectRatio=ratio)
         self.light = pyrender.DirectionalLight(color=[1.0, 1.0, 1.0])
-        self.node_mesh = pyrender.Node(mesh=self.mesh, matrix=np.eye(4))
+        if normalize:                                           # scale to a unit box, centered at origin
+            scale = 2.0 / orig_mesh.bounding_box.extents.max()  # axis equally scale
+            translation = -orig_mesh.bounding_box.centroid
+            mesh_mat = np.asarray([
+                [scale, 0, 0, translation[0]],
+                [0, scale, 0, translation[1]],
+                [0, 0, scale, translation[2]],
+                [0, 0, 0, 1]
+            ], dtype=np.float32)
+        else:
+            mesh_mat = np.eye(4)
+        self.node_mesh = pyrender.Node(mesh=self.mesh, matrix=mesh_mat)
         self.node_camera = pyrender.Node(camera=self.camera, matrix=np.eye(4))
         self.node_light = pyrender.Node(light=self.light, matrix=np.asarray([
             [0.70710678, -0.40824829, 0.57735027, 1.],
@@ -97,5 +108,4 @@ if __name__ == '__main__':
         ], focus=[0, 0, 0], up=[0, 0, 1], render=None)
     rgb2 = r.render(p2.get_matrix(), mode='FLAT')
     cv2.imwrite('flat.png', rgb2[..., ::-1])
-    r.renderer.delete()
     print('ok')

@@ -8,7 +8,7 @@ import numpy as np
 from render import PRRenderer
 
 from utils import time_it, quaternion_from_view_up, quaternion_rotate_vec, quaternion_to_matrix
-from paths import DATASET_DIR
+import paths
 
 
 DEFAULT_ORIENTATION = [0, 0, -1]
@@ -70,7 +70,7 @@ def visualize_probes(probe_list, result_dir, stitch=True, cell_width=100, gap=5)
     Args:
         probe_list (list of Probe):
         result_dir (str): the output image is written to result_dir/vis.png
-        stitch (bool): put all the render together, try to make output's height and width similar,
+        stitch (bool): put all the render together, try to make output as square as possible,
             also make the number of columns times of 10 to help count.
         cell_width (int): only effective if stitch is True, indicate how big a render is by pixels.
         gap (int): only effective if stitch is True
@@ -118,16 +118,16 @@ def visualize_probes(probe_list, result_dir, stitch=True, cell_width=100, gap=5)
 
 
 def serialize_probes(write_path, probe_list: list):
+    """
+    Save to file
+    """
     with open(write_path, 'wb') as f:
         pickle.dump(probe_list, f)
 
 
 def deserialize_probes(read_path):
     """
-    Args:
-        read_path (str):
-    Returns:
-        list of Probe:
+    Read from file
     """
     with open(read_path, 'rb') as f:
         probe_list = pickle.load(f)
@@ -135,13 +135,13 @@ def deserialize_probes(read_path):
 
 
 @time_it
-def generate_probes(obj_path=None, radius=2.7, azimuth_sample=None, elevation_sample=None, dump_path=None):
+def generate_probes(mesh_path=None, radius=2.7, azimuth_sample=None, elevation_sample=None, dump_path=None):
     """
     Generate flat-textured render from the azimuth and elevation samples,
     default focus is [0, 0, 0], default up is z axis. Right hand coordinate system.
     The azimuth is from x-axis to y-axis.
     Args:
-        obj_path:
+        mesh_path:
         radius:
         azimuth_sample:
         elevation_sample:
@@ -151,7 +151,7 @@ def generate_probes(obj_path=None, radius=2.7, azimuth_sample=None, elevation_sa
     """
     k = 0
     probes = []
-    renderer = PRRenderer(obj_path)
+    renderer = PRRenderer(mesh_path)
     if azimuth_sample is None:
         azimuth_sample = [a / 180 * math.pi for a in range(0, 360, 10)]
     if elevation_sample is None:
@@ -161,7 +161,7 @@ def generate_probes(obj_path=None, radius=2.7, azimuth_sample=None, elevation_sa
             position = [radius * math.cos(elevation) * math.cos(azimuth),
                         radius * math.cos(elevation) * math.sin(azimuth),
                         radius * math.sin(elevation)]
-            probe = Probe(obj_path, eye=position, focus=[0, 0, 0], up=[0, 0, 1], render=None)
+            probe = Probe(mesh_path, eye=position, focus=[0, 0, 0], up=[0, 0, 1], render=None)
             label = renderer.render(probe.get_matrix(), mode='FLAT')[..., ::-1]
             probe.render = label
             probes.append(probe)
@@ -193,13 +193,13 @@ def ablation_num_of_probes(probe_list, factor=2):
 
 if __name__ == '__main__':
     os.environ['PYOPENGL_PLATFORM'] = 'egl'
-    base_dir = DATASET_DIR
-    cases = [name for name in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, name))]
-    for case in cases:
-        os.makedirs('results/{}'.format(case), exist_ok=True)
+    base_dir = paths.DATASET_DIR
+    for case in paths.ALL_CASES:
+        case_result_dir = os.path.join(paths.RESULTS_DIR, case)
+        os.makedirs(case_result_dir, exist_ok=True)
         case_probes = generate_probes(
-            obj_path=os.path.join(base_dir, case, 'kidney_and_tumor.obj'),
-            dump_path='results/{}/probes.pk'.format(case)
+            mesh_path=os.path.join(base_dir, case, paths.MESH_FILENAME),
+            dump_path=os.path.join(case_result_dir, paths.PROBE_FILENAME)
         )
-        visualize_probes(case_probes, 'results/{}'.format(case))
+        visualize_probes(case_probes, case_result_dir)
         print('Case {} is OK.'.format(case))

@@ -6,6 +6,8 @@ import trimesh
 import numpy as np
 import cv2
 
+import paths
+
 
 class PRRenderer:
     """
@@ -33,7 +35,8 @@ class PRRenderer:
             ratio = width / height
         else:
             raise RuntimeError()
-        self.mesh = pyrender.Mesh.from_trimesh(list(trimesh.load(mesh_path).geometry.values()))
+        orig_mesh = trimesh.load(mesh_path)
+        self.mesh = pyrender.Mesh.from_trimesh(list(orig_mesh.geometry.values()))
         self.camera = pyrender.PerspectiveCamera(yfov=np.pi / 3, aspectRatio=ratio)
         self.light = pyrender.DirectionalLight(color=[1.0, 1.0, 1.0])
         self.node_mesh = pyrender.Node(mesh=self.mesh, matrix=np.eye(4))
@@ -85,7 +88,7 @@ class PRRenderer:
 
 if __name__ == '__main__':
     os.environ['PYOPENGL_PLATFORM'] = 'egl'
-    r = PRRenderer('../2d3d_dataset/GongDaoming/kidney_tumor_artery_vein.obj', out_size=(576, 720))
+    r = PRRenderer(os.path.join(paths.DATASET_DIR, paths.ALL_CASES[0], paths.MESH_FILENAME), out_size=(576, 720))
     from probe import Probe
     p2 = Probe(mesh_path=None, eye=[
             1.115575,

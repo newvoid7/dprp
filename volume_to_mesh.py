@@ -4,6 +4,8 @@ import vtk
 import numpy as np
 from vtk.util.numpy_support import vtk_to_numpy, numpy_to_vtk
 
+import paths
+
 
 class VTKRenderer:
     def __init__(self, p_path):
@@ -211,6 +213,7 @@ class VTKRenderer:
 
 
 if __name__ == '__main__':
-    base_dir = 'D:\\Link\\Desktop\\data\\WuYong\\CTmask'
-    r = VTKRenderer(os.path.join(base_dir, 'wuyong_right.nii.gz'))
-    r.save_mesh(os.path.join(base_dir, 'kidney_tumor_artery_vein'), save_format='gltf')
+    for case in paths.ALL_CASES:
+        case_dir = os.path.join(paths.DATASET_DIR, case)
+        r = VTKRenderer(os.path.join(case_dir, paths.VOLUME_FILENAME))
+        r.save_mesh(os.path.join(case_dir, paths.MESH_FILENAME), save_format='gltf')

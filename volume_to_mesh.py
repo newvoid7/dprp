@@ -15,7 +15,7 @@ class VTKRenderer:
             'artery': 4
         }
         self.lut = {
-            # (R, G, B)
+            # (R, G, B), values in [0, 1]
             'kidney': (1, 1, 1),
             'tumor': (1, 1, 0),
             'vein': (0, 0, 1),
@@ -27,14 +27,15 @@ class VTKRenderer:
         elif self.file_path.endswith('.nii') or self.file_path.endswith('.nii.gz'):
             reader = vtk.vtkNIFTIImageReader()
         else:
-            raise
+            raise RuntimeError('The input file format should be *.mhd or *.nii')
         reader.SetFileName(self.file_path)
         reader.Update()
         image_vtk = reader.GetOutput()
 
         self.actors = {}
         for k, v in self.voxel_value.items():
-            a = self.vtk_extract_voxel(image_vtk, v)
+            a = self.vtk_extract_voxel(image_vtk, v, k)
+            a.SetObjectName(k)
             a.GetProperty().SetColor(*self.lut[k])
             self.actors[k] = a
 
@@ -45,17 +46,18 @@ class VTKRenderer:
         self.camera = self.renderer.GetActiveCamera()
 
     @staticmethod
-    def vtk_extract_voxel(vtk_image_data, voxel_value):
+    def vtk_extract_voxel(vtk_image_data, voxel_value, name):
         """
         Input a ImageData, reserve voxel_value, set the artery values to 0, output the actor
         :param vtk_image_data:  vtk.vtkImageData
         :param voxel_value:
+        :param name:
         :return:                vtk.vtkActor
         """
         array_type = vtk_image_data.GetPointData().GetScalars().GetArrayType()
         image_arr = vtk_to_numpy(vtk_image_data.GetPointData().GetScalars())
 
-        # clear artery voxels
+        # clear other voxels
         this_arr = image_arr.copy()
         np.putmask(this_arr, this_arr != voxel_value, 0)
 
@@ -74,6 +76,7 @@ class VTKRenderer:
         # mapper
         mapper = vtk.vtkPolyDataMapper()
         mapper.SetInputConnection(contour.GetOutputPort())
+        mapper.SetArrayName(name)
         mapper.ScalarVisibilityOff()
 
         # actor
@@ -171,7 +174,16 @@ class VTKRenderer:
         arr = arr[::-1, :, ::-1]
         return arr
 
-    def save_obj(self, path, display=None):
+    def save_mesh(self, path, display=None, save_format='obj'):
+        """
+        Save volume to a mesh file
+        Args:
+            path (str):
+            display (list): what primitives should be written to file, default write all primitives
+            save_format:
+        Returns:
+            None
+        """
         for a in self.renderer.GetActors():
             self.renderer.RemoveActor(a)
 
@@ -185,13 +197,20 @@ class VTKRenderer:
         rw = vtk.vtkRenderWindow()
         rw.AddRenderer(self.renderer)
 
-        exporter = vtk.vtkOBJExporter()
-        exporter.SetFilePrefix(path)
-        exporter.SetInput(rw)
-        exporter.Write()
+        if save_format == 'obj':
+            exporter = vtk.vtkOBJExporter()
+            exporter.SetFilePrefix(path)
+            exporter.SetInput(rw)
+            exporter.Write()
+        elif save_format == 'gltf':
+            exporter = vtk.vtkGLTFExporter()
+            exporter.SetFileName(path + '.gltf')
+            exporter.SetInput(rw)
+            exporter.InlineDataOn()         # pack all the .bin file in .gltf
+            exporter.Write()
 
 
 if __name__ == '__main__':
     base_dir = 'D:\\Link\\Desktop\\data\\WuYong\\CTmask'
     r = VTKRenderer(os.path.join(base_dir, 'wuyong_right.nii.gz'))
-    r.save_obj(os.path.join(base_dir, 'kidney_tumor_artery_vein'))
+    r.save_mesh(os.path.join(base_dir, 'kidney_tumor_artery_vein'), save_format='gltf')

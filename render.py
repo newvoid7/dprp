@@ -78,7 +78,8 @@ class PRRenderer:
             raise RuntimeError('The mode not correct.')
         return render_output
 
-    def destroy(self):
+    def __del__(self):
+        print('The renderer is destroyed.')
         self.renderer.delete()
 
 

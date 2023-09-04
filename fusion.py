@@ -434,7 +434,6 @@ def alpha_test(fold=0, **kwargs):
         evaluations['average'] = average_metrics
         with open('{}/{}/metrics.json'.format(result_dir, case_id), 'w') as f:
             json.dump(evaluations, f, indent=4)
-        registrator.renderer.destroy()
 
     print('All OK')
 

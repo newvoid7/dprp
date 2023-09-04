@@ -169,7 +169,6 @@ def generate_probes(obj_path=None, radius=2.7, azimuth_sample=None, elevation_sa
             print('Generated probe [{}/{}]'.format(k, len(azimuth_sample) * len(elevation_sample)))
     if dump_path is not None:
         serialize_probes(dump_path, probes)
-    renderer.destroy()
     return probes
 
 

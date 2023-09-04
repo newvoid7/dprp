@@ -201,15 +201,18 @@ class VTKRenderer:
 
         if save_format == 'obj':
             exporter = vtk.vtkOBJExporter()
-            exporter.SetFilePrefix(path)    # the .obj file often has a .mtl beside it
+            if path.endswith('.obj'):
+                exporter.SetFilePrefix(path[:-4])   # the .obj file often has a .mtl beside it
+            else:
+                exporter.SetFilePrefix(path)        # so, we only set the prefix of the filenames
             exporter.SetInput(rw)
             exporter.Write()
         elif save_format == 'gltf':
             exporter = vtk.vtkGLTFExporter()
             if path.endswith('.gltf'):
-                exporter.SetFileName(path[:-5])
-            else:
                 exporter.SetFileName(path)
+            else:
+                exporter.SetFileName(path + '.gltf')
             exporter.SetInput(rw)
             exporter.InlineDataOn()         # pack all the bin data in .gltf
             exporter.Write()

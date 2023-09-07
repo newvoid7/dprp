@@ -70,7 +70,7 @@ class Probe:
 
 
 @time_it
-def visualize_probes(result_dir, probe_list, stitch=True, cell_width=100, gap=5):
+def visualize_probes(result_dir, probe_list, stitch=True, cell_width=200, gap=5):
     """
     Visualize the render of probes to a single image (if stitch) or separate images.
     Meanwhile, write the render parameters to a json file.
@@ -162,7 +162,7 @@ def deserialize_probes(read_path):
 
 
 @time_it
-def generate_probes(mesh_path=None, radius=2.7, azimuth_sample=None, elevation_sample=None):
+def generate_probes(mesh_path=None, radius=3, azimuth_sample=None, elevation_sample=None):
     """
     Generate flat-textured render from the azimuth and elevation samples,
     default focus is [0, 0, 0], default up is z axis. Right hand coordinate system.
@@ -188,7 +188,7 @@ def generate_probes(mesh_path=None, radius=2.7, azimuth_sample=None, elevation_s
                         radius * math.cos(elevation) * math.sin(azimuth),
                         radius * math.sin(elevation)]
             probe = Probe(mesh_path, eye=position, focus=[0, 0, 0], up=[0, 0, 1], render=None)
-            label = renderer.render(probe.get_matrix(), mode='FLAT')[..., ::-1]
+            label = renderer.render(probe.get_matrix(), mode='FLAT', draw_mesh=[0, 1])[..., ::-1]
             probe.render = label
             probes.append(probe)
             k += 1
@@ -226,5 +226,5 @@ if __name__ == '__main__':
         )
         serialize_probes(os.path.join(case_result_dir, paths.PROBE_FILENAME), case_probes)
         visualize_probes(case_result_dir, case_probes)
-        probes = deserialize_probes(os.path.join(case_result_dir, paths.PROBE_FILENAME))
+        # probes = deserialize_probes(os.path.join(case_result_dir, paths.PROBE_FILENAME))
         print('Case {} is OK.'.format(case))

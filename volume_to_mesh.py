@@ -37,7 +37,6 @@ class VTKRenderer:
         self.actors = {}
         for k, v in self.voxel_value.items():
             a = self.vtk_extract_voxel(image_vtk, v, k)
-            a.SetObjectName(k)
             a.GetProperty().SetColor(*self.lut[k])
             self.actors[k] = a
 
@@ -78,7 +77,6 @@ class VTKRenderer:
         # mapper
         mapper = vtk.vtkPolyDataMapper()
         mapper.SetInputConnection(contour.GetOutputPort())
-        mapper.SetArrayName(name)
         mapper.ScalarVisibilityOff()
 
         # actor

@@ -1,7 +1,6 @@
 import json
 import math
 import os
-import pickle
 
 import cv2
 import numpy as np
@@ -162,7 +161,7 @@ def deserialize_probes(read_path):
 
 
 @time_it
-def generate_probes(mesh_path=None, radius=3, azimuth_sample=None, elevation_sample=None):
+def generate_probes(mesh_path=None, radius=2.5, azimuth_sample=None, elevation_sample=None):
     """
     Generate flat-textured render from the azimuth and elevation samples,
     default focus is [0, 0, 0], default up is z axis. Right hand coordinate system.

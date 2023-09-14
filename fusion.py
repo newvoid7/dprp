@@ -16,9 +16,9 @@ from network.profen import ProFEN
 from network.affine2d import Affine2dPredictor, Affine2dTransformer
 from network.track import TrackerKP
 from utils import resized_center_square, make_channels, tensor_to_cv2, cv2_to_tensor, time_it, images_alpha_lighten
-from probe import Probe, deserialize_probes, ablation_num_of_probes
+from probe import Probe, deserialize_probes, ablation_num_of_probes, generate_probes
 from train import set_fold
-from paths import DATASET_DIR
+import paths
 
 CASE_INFO = {
     'GongDaoming': 'type1',
@@ -29,6 +29,35 @@ CASE_INFO = {
     'SunYufeng': 'type1',
     'WuQuan': 'type5',
     'WuYong': 'type4',
+}
+
+PROBE_PRESETS = {
+    # azimuth should be in (-180, 180] degrees, elevation should be in [-90, 90] degrees.
+    'type1': {
+        'description': 'The renal main axis is z=y, the renal hilum is face to (-1, -1, 0).',
+        'azimuth': lambda x: 45 <= x <= 135,
+        'elevation': lambda x: -60 <= x <= 0
+    },
+    'type2': {
+        'description': 'The renal main axis is z=-x, the renal hilum is face to (-1, -1, -1).',
+        'azimuth': lambda x: 90 <= x <= 180,
+        'elevation': lambda x: -60 <= x <= 0
+    },
+    'type3': {
+        'description': 'The renal main axis is z=y, the renal hilum is face to (1, -1, 0).',
+        'azimuth': lambda x: 45 <= x <= 135,
+        'elevation': lambda x: -45 <= x <= 15
+    },
+    'type4': {
+        'description': 'The renal main axis is z=y, the renal hilum is face to (1, -1, 0).',
+        'azimuth': lambda x: 135 <= x <= 180 or -180 < x <= -135,
+        'elevation': lambda x: -60 <= x <= 30
+    },
+    'type5': {
+        'description': 'The renal main axis is z=y, the renal hilum is face to (1, -1, 0).',
+        'azimuth': lambda x: -45 <= x <= 60,
+        'elevation': lambda x: -60 <= x <= 0
+    }
 }
 
 
@@ -57,45 +86,8 @@ class Registrator:
         self.affine_transformer = Affine2dTransformer().cuda()
         self.feature_sim_func = CosineSimilarity()
 
-        self.probe_presets = {
-            # azimuth should be in (-180, 180] degrees, elevation should be in [-90, 90] degrees.
-            'type1': {
-                'description': 'The renal main axis is z=y, the renal hilum is face to (-1, -1, 0).',
-                'azimuth': lambda x: 45 <= x <= 135,
-                'elevation': lambda x: -60 <= x <= 0
-            },
-            'type2': {
-                'description': 'The renal main axis is z=-x, the renal hilum is face to (-1, -1, -1).',
-                'azimuth': lambda x: 90 <= x <= 180,
-                'elevation': lambda x: -60 <= x <= 0
-            },
-            'type3': {
-                'description': 'The renal main axis is z=y, the renal hilum is face to (1, -1, 0).',
-                'azimuth': lambda x: 45 <= x <= 135,
-                'elevation': lambda x: -45 <= x <= 15
-            },
-            'type4': {
-                'description': 'The renal main axis is z=y, the renal hilum is face to (1, -1, 0).',
-                'azimuth': lambda x: 135 <= x <= 180 or -180 < x <= -135,
-                'elevation': lambda x: -60 <= x <= 30
-            },
-            'type5': {
-                'description': 'The renal main axis is z=y, the renal hilum is face to (1, -1, 0).',
-                'azimuth': lambda x: -45 <= x <= 60,
-                'elevation': lambda x: -60 <= x <= 0
-            }
-        }
-
         self.probes = probes
-        self.probe_sphere_coord = [
-            {
-                # azimuth in (-180, 180] degrees, elevation in [-90, 90] degrees.
-                'radius': np.linalg.norm(p.get_eye()),
-                'azimuth': np.arctan2(p.get_eye()[1], p.get_eye()[0]) / np.pi * 180,
-                'elevation': np.arcsin(p.get_eye()[2] / np.linalg.norm(p.get_eye())) / np.pi * 180
-            }
-            for p in probes
-        ]
+        self.probe_sphere_coord = [p.get_sphere_coord() for p in probes]
         self.probe_render_2ch = [make_channels(p.render.transpose((2, 0, 1)),
                                                [lambda x: x[0] != 0, lambda x: (x[0] == 0) & (x.any(0))])
                                  for p in probes]
@@ -217,7 +209,7 @@ class Registrator:
         """
         frame = (frame / 255.0).astype(np.float32)
         probe_render = torch.from_numpy(self.probe_render_2ch[index])
-        re_rendered = self.renderer.render(self.probes[index].get_matrix(), mode='RGB')[..., ::-1]
+        re_rendered = self.renderer.render(self.probes[index].get_matrix(), draw_mesh=[0, 1], mode='RGB')[..., ::-1]
         transformed, affine_factor = self.affine_transform_geometry(
             probe_render.unsqueeze(0), segmentation.unsqueeze(0), cv2_to_tensor(re_rendered).unsqueeze(0))
         aligned = (images_alpha_lighten(frame, transformed / transformed.max(), 0.5) * 255).astype(np.uint8)
@@ -226,7 +218,7 @@ class Registrator:
     def overlap_tracker(self, frame, index):
         segmentation = self.tracker(frame)
         probe_render = torch.from_numpy(self.probe_render_2ch[index])
-        re_rendered = self.renderer.render(self.probes[index].get_matrix(), mode='RGB')[..., ::-1]
+        re_rendered = self.renderer.render(self.probes[index].get_matrix(), draw_mesh=[0, 1], mode='RGB')[..., ::-1]
         transformed, affine_factor = self.affine_transform_geometry(
             probe_render.unsqueeze(0), segmentation.unsqueeze(0), cv2_to_tensor(re_rendered).unsqueeze(0))
         aligned = (images_alpha_lighten(frame, transformed / transformed.max(), 0.5) * 255).astype(np.uint8)
@@ -250,7 +242,7 @@ class Registrator:
         """
         seg_feature = self.feature_extractor(segment.unsqueeze(0).cuda()).detach().cpu()
         feature_sim = np.asarray([self.feature_sim_func(seg_feature, f).numpy() for f in self.probe_feature])
-        restriction = self.probe_presets[prior_type]
+        restriction = PROBE_PRESETS[prior_type]
         out_restricted_area = [
             not restriction['azimuth'](c['azimuth'])
             or not restriction['elevation'](c['elevation'])
@@ -277,7 +269,7 @@ class Registrator:
         segment = self.tracker()
         seg_feature = self.feature_extractor(segment.unsqueeze(0).cuda()).detach().cpu()
         feature_sim = np.asarray([self.feature_sim_func(seg_feature, f).numpy() for f in self.probe_feature])
-        restriction = self.probe_presets[prior_type]
+        restriction = PROBE_PRESETS[prior_type]
         out_restricted_area = [
             not restriction['azimuth'](c['azimuth'])
             or not restriction['elevation'](c['elevation'])
@@ -298,51 +290,7 @@ class Registrator:
             'transformed': transformed,
         }
         return frame_info
-
-
-# def evaluate_registration(render, gt):
-#     """
-#     Compute: dice, hausdorff distance
-#     Args:
-#         render (np.ndarray): (C=2, H, W), the transformed render result, 2 channels for 2 targets.
-#         gt (np.ndarray): (C=2, H, W), the label image.
-#     """
-#     # first extract different parts of the render image and ground truth
-#     render_kidney = render[0]
-#     render_tumor = render[1]
-#     gt_kidney = gt[0]
-#     gt_tumor = gt[1]
-#
-#     dice_kidney = 2 * ((render_kidney * gt_kidney).sum()) / (render_kidney.sum() + gt_kidney.sum())
-#     dice_tumor = 2 * ((render_tumor * gt_tumor).sum()) / (render_tumor.sum() + gt_tumor.sum())
-#
-#     render_kidney_border, _ = cv2.findContours(
-#         (render_kidney * 255).astype(np.uint8), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-#     render_tumor_border, _ = cv2.findContours(
-#         (render_tumor * 255).astype(np.uint8), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-#     gt_kidney_border, _ = cv2.findContours(
-#         (gt_kidney * 255).astype(np.uint8), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-#     gt_tumor_border, _ = cv2.findContours(
-#         (gt_tumor * 255).astype(np.uint8), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-#
-#     hausdorff_de = cv2.createHausdorffDistanceExtractor()
-#     hd_kidney = hausdorff_de.computeDistance(render_kidney_border[0], gt_kidney_border[0])
-#     # hd_tumor = hausdorff_de.computeDistance(render_tumor_border[0], gt_tumor_border[0])
-#
-#     distance_matrix = np.asarray([
-#         ((gt_kidney_border[0][0].squeeze() - render_pt) ** 2).sum(-1) ** 0.5
-#         for render_pt in render_kidney_border[0][0].squeeze()
-#     ])
-#     avd = distance_matrix.min(-1).mean()
-#
-#     return {
-#         'dice':
-#             {'kidney': dice_kidney, 'tumor': dice_tumor},
-#         'hd':
-#             {'kidney': hd_kidney},
-#         'avd':
-#             {'kidney': avd}
-#     }
+    
 
 def evaluate(predict, label):
     predict = predict[0]
@@ -365,19 +313,23 @@ def evaluate(predict, label):
 
 
 def alpha_test(fold=0, **kwargs):
-    base_dir = DATASET_DIR
+    base_dir = paths.DATASET_DIR
     _, test_cases = set_fold(fold)
     for case_id in test_cases:
         case_dir = os.path.join(base_dir, case_id)
         case_type = CASE_INFO[case_id]
         filenames = [fn for fn in os.listdir(case_dir) if fn.endswith('.jpg') or fn.endswith('.png')]
         filenames.sort(key=lambda x: int(x[:-4]))
-        probes = deserialize_probes(os.path.join(paths.RESULTS_DIR, case_id, paths.PROBE_FILENAME))
+        probe_path = os.path.join(paths.RESULTS_DIR, case_id, paths.PROBE_FILENAME)
+        mesh_path = os.path.join(paths.DATASET_DIR, case_id, paths.MESH_FILENAME)
+        if os.path.exists(probe_path):
+            probes = deserialize_probes(probe_path)
+        else:
+            probes = generate_probes(mesh_path)
         # give a new mesh to re-render in the fusion result
-        mesh_path = os.path.join(case_dir, 'kidney_tumor_artery_vein.obj')
         height, width = cv2.imread(os.path.join(case_dir, filenames[0])).shape[:-1]
         profen_path = 'weights/fold{}/profen_best.pth'.format(fold)
-        result_dir = 'results'
+        result_dir = paths.RESULTS_DIR
         if 'ablation_number_of_probes' in kwargs.keys():
             factor = kwargs['ablation_number_of_probes']
             probes = ablation_num_of_probes(probes, factor=factor)

@@ -54,6 +54,19 @@ class Probe:
 
     def get_up(self):
         return quaternion_rotate_vec(np.asarray(DEFAULT_UP, dtype=float), self.camera_quaternion)
+    
+    def get_spcoord_dict(self):
+        """
+        Sphere coordinate of camera position
+        Returns:
+            dict: including 3 items specifying radius, azimuth and elevation
+        """
+        return {
+            # azimuth in (-180, 180] degrees, elevation in [-90, 90] degrees.
+            'radius': np.linalg.norm(self.camera_position),
+            'azimuth': np.arctan2(self.camera_position[1], self.camera_position[0]) / np.pi * 180,
+            'elevation': np.arcsin(self.camera_position[2] / np.linalg.norm(self.camera_position)) / np.pi * 180
+        }
 
     def get_matrix(self):
         rot_mat = quaternion_to_matrix(self.camera_quaternion)

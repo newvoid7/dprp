@@ -14,14 +14,16 @@ from network.vos import LSTMVOSWithSC
 from dataloaders import VOSDataloader, ProbeSingleCaseDataloader
 from probe import deserialize_probes, Probe, ablation_num_of_probes
 from utils import resized_center_square, cv2_to_tensor, select_best_weight
-from paths import ALL_CASES, DATASET_DIR
+import paths
 
-
-def set_fold(fold):
-    test_indices = [fold * 2, fold * 2 + 1]
-    test_cases = [ALL_CASES[i] for i in test_indices]
-    train_indices = [i for i in range(len(ALL_CASES)) if i not in test_indices]
-    train_cases = [ALL_CASES[i] for i in train_indices]
+                
+def set_fold(fold, num_all_folds):
+    num_all_cases = len(paths.ALL_CASES)
+    fold_size = num_all_cases // num_all_folds
+    test_indices = [fold * fold_size + i for i in range(fold_size)]
+    test_cases = [paths.ALL_CASES[i] for i in test_indices]
+    train_indices = [i for i in range(len(paths.ALL_CASES)) if i not in test_indices]
+    train_cases = [paths.ALL_CASES[i] for i in train_indices]
     return train_cases, test_cases
 
 
@@ -78,7 +80,7 @@ class VOSAugmentor:
         return augmented_images, augmented_labels
 
 
-def train_profen(base_dir=DATASET_DIR, fold=0, n_epoch=300, batch_size=8,
+def train_profen(base_dir=paths.DATASET_DIR, fold=0, n_folds=6, n_epoch=300, batch_size=8,
                  use_ref_info_nce=True):
     """
     Use the positions of probes as reference to decide how bad the negative pair is (see network.loss.RefInfoNCELoss).
@@ -90,7 +92,7 @@ def train_profen(base_dir=DATASET_DIR, fold=0, n_epoch=300, batch_size=8,
     fe.train()
     loss_func = RefInfoNCELoss() if use_ref_info_nce else InfoNCELoss()
     optimizer = torch.optim.Adam(fe.parameters(), lr=1e-4)
-    train_cases, _ = set_fold(fold)
+    train_cases, _ = set_fold(fold, n_folds)
     os.makedirs('weights/fold{}'.format(fold), exist_ok=True)
     # dataloader = ProbeSingleCaseDataloader(
     #     [ablation_num_of_probes(
@@ -98,7 +100,7 @@ def train_profen(base_dir=DATASET_DIR, fold=0, n_epoch=300, batch_size=8,
     #         for case_id in train_cases],
     #     batch_size=batch_size)
     dataloader = ProbeSingleCaseDataloader(
-        [deserialize_probes(os.path.join('results', case_id, 'probes.pk'))
+        [deserialize_probes(os.path.join(paths.RESULTS_DIR, case_id, paths.PROBE_FILENAME))
         for case_id in train_cases],
         batch_size=batch_size)
     agent = AgentTask(mask_path=os.path.join(base_dir, 'mask.png'))
@@ -123,23 +125,23 @@ def train_profen(base_dir=DATASET_DIR, fold=0, n_epoch=300, batch_size=8,
         epoch_loss.append(iter_loss)
         print('epoch[{}/{}], loss: {}'.format(epoch + 1, n_epoch, iter_loss.mean()))
         if (epoch + 1) % 10 == 0:
-            torch.save(fe.state_dict(), 'weights/fold{}/profen{}_{}.pth'
-                       .format(fold, '' if use_ref_info_nce else '_infonce', epoch + 1))
-    np.save('weights/fold{}/profen{}.npy'.format(fold, '' if use_ref_info_nce else '_infonce'),
+            torch.save(fe.state_dict(), '{}/fold{}/profen{}_{}.pth'
+                       .format(paths.WEIGHTS_DIR, fold, '' if use_ref_info_nce else '_infonce', epoch + 1))
+    np.save('{}/fold{}/profen{}.npy'.format(paths.WEIGHTS_DIR, fold, '' if use_ref_info_nce else '_infonce'),
             np.asarray(epoch_loss))
     return
 
 
-def train_affine2d(base_dir=DATASET_DIR, fold=0, n_epoch=300, batch_size=8):
+def train_affine2d(base_dir=paths.DATASET_DIR, fold=0, n_folds=6, n_epoch=300, batch_size=8):
     predictor = Affine2dPredictor().cuda()
     predictor.train()
     transformer = Affine2dTransformer().cuda()
     optimizer = torch.optim.Adam(predictor.parameters(), lr=1e-4)
     loss_func = MSELoss().cuda()
-    train_cases, _ = set_fold(fold)
+    train_cases, _ = set_fold(fold, n_folds)
     os.makedirs('weights/fold{}'.format(fold), exist_ok=True)
     dataloader = ProbeSingleCaseDataloader(
-        [deserialize_probes(os.path.join('results', case_id, 'probes.pk')) for case_id in train_cases],
+        [deserialize_probes(os.path.join(paths.RESULTS_DIR, case_id, paths.PROBE_FILENAME)) for case_id in train_cases],
         batch_size=batch_size)
     agent = AgentTask(mask_path=os.path.join(base_dir, 'mask.png'))
     epoch_loss = []
@@ -167,12 +169,12 @@ def train_affine2d(base_dir=DATASET_DIR, fold=0, n_epoch=300, batch_size=8):
     return
 
 
-def train_vos(base_dir=DATASET_DIR, fold=0, n_epoch=500, batch_size=8):
+def train_vos(base_dir=paths.DATASET_DIR, fold=0, n_folds=6, n_epoch=500, batch_size=8):
     vos = LSTMVOSWithSC().cuda()
     vos.train()
     loss_func = MultiCELoss()
     optimizer = torch.optim.Adam(vos.parameters(), lr=1e-4)
-    train_cases, _ = set_fold(fold)
+    train_cases, _ = set_fold(fold, n_folds)
     dataloader = VOSDataloader(
         image_dirs=[os.path.join(base_dir, case_id) for case_id in train_cases],
         label_dirs=[os.path.join(base_dir, case_id, 'label') for case_id in train_cases],
@@ -197,25 +199,25 @@ def train_vos(base_dir=DATASET_DIR, fold=0, n_epoch=500, batch_size=8):
         epoch_loss.append(iter_loss)
         print('epoch[{}/{}], loss: {}'.format(epoch + 1, n_epoch, iter_loss.mean()))
         if (epoch + 1) % 10 == 0:
-            torch.save(vos.state_dict(), 'weights/fold{}/vos_train_{}.pth'.format(fold, epoch + 1))
-    np.save('weights/fold{}/vos_loss.npy'.format(fold), np.asarray(epoch_loss))
+            torch.save(vos.state_dict(), '{}/fold{}/vos_train_{}.pth'.format(paths.WEIGHTS_DIR, fold, epoch + 1))
+    np.save('{}/fold{}/vos_loss.npy'.format(paths.WEIGHTS_DIR, fold), np.asarray(epoch_loss))
     return
 
 
 if __name__ == '__main__':
     os.environ['CUDA_VISIBLE_DEVICES'] = '0'
-    for n_fold in range(4):
-        train_profen(fold=n_fold)
-        train_profen(fold=n_fold, use_ref_info_nce=False)
-        train_affine2d(fold=n_fold)
+    for fold in range(6):
+        train_profen(fold=fold, n_folds=6)
+        train_profen(fold=fold, n_folds=6, use_ref_info_nce=False)
+        train_affine2d(fold=fold, n_folds=6)
     #     train_vos(fold=n_fold)
     for fold in range(4):
-        select_best_weight(['weights/fold{}/profen_{}.pth'.format(fold, i * 10 + 10) for i in range(30)],
-                           'weights/fold{}/profen.npy'.format(fold),
-                           'weights/fold{}/profen_best.pth'.format(fold))
-        select_best_weight(['weights/fold{}/profen_infonce_{}.pth'.format(fold, i * 10 + 10) for i in range(30)],
-                           'weights/fold{}/profen_infonce.npy'.format(fold),
-                           'weights/fold{}/profen_infonce_best.pth'.format(fold))
-        select_best_weight(['weights/fold{}/affine2d_{}.pth'.format(fold, i * 10 + 10) for i in range(30)],
-                           'weights/fold{}/affine2d.npy'.format(fold),
-                           'weights/fold{}/affine2d_best.pth'.format(fold))
+        select_best_weight(['{}/fold{}/profen_{}.pth'.format(paths.WEIGHTS_DIR, fold, i * 10 + 10) for i in range(30)],
+                           '{}/fold{}/profen.npy'.format(paths.WEIGHTS_DIR, fold),
+                           '{}/fold{}/profen_best.pth'.format(paths.WEIGHTS_DIR, fold))
+        select_best_weight(['{}/fold{}/profen_infonce_{}.pth'.format(paths.WEIGHTS_DIR, fold, i * 10 + 10) for i in range(30)],
+                           '{}/fold{}/profen_infonce.npy'.format(paths.WEIGHTS_DIR, fold),
+                           '{}/fold{}/profen_infonce_best.pth'.format(paths.WEIGHTS_DIR, fold))
+        select_best_weight(['{}/fold{}/affine2d_{}.pth'.format(paths.WEIGHTS_DIR, fold, i * 10 + 10) for i in range(30)],
+                           '{}/fold{}/affine2d.npy'.format(paths.WEIGHTS_DIR, fold),
+                           '{}/fold{}/affine2d_best.pth'.format(paths.WEIGHTS_DIR, fold))

@@ -3,7 +3,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as nnf
-from torchvision.models import resnet18
+from torchvision import models
 
 
 class Affine2dPredictor(nn.Module):
@@ -11,7 +11,7 @@ class Affine2dPredictor(nn.Module):
         super(Affine2dPredictor, self).__init__()
         self.first = nn.Conv2d(in_channels=n_channels * 2, out_channels=64, kernel_size=7, stride=2, padding=3,
                                bias=False)
-        self.encoder = resnet18(pretrained=True)
+        self.encoder = models.resnet18(weights=models.resnet.ResNet18_Weights.IMAGENET1K_V1)
         self.fc = nn.Linear(512, 4)
 
     def forward(self, in0, in1):

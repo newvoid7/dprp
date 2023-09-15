@@ -39,6 +39,9 @@ class NCCLoss(nn.Module):
 
 
 class InfoNCELoss(nn.Module):
+    """
+    Basic idea from https://arxiv.org/pdf/2002.05709.pdf.
+    """
     def __init__(self):
         super().__init__()
         self.cos_sim_func = nn.CosineSimilarity(dim=1, eps=1e-6)
@@ -71,7 +74,6 @@ class InfoNCELoss(nn.Module):
 
 class RefInfoNCELoss(nn.Module):
     """
-    Basic idea from https://arxiv.org/pdf/2002.05709.pdf.
     Added a reference to decide how negative the pair is.
     """
     def __init__(self):

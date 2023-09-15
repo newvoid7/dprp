@@ -1,10 +1,8 @@
-import os
 import time
 
 import cv2
 import numpy as np
 import torch
-import matplotlib.pyplot as plt
 
 
 def time_it(func):
@@ -15,7 +13,7 @@ def time_it(func):
         start = time.time()
         result = func(*args, **kwargs)
         end = time.time()
-        print('[TIMELOG] function \'{}\' elapsed time: {:.3f} s.'.format(func.__name__, end - start))
+        print('[TIMELOG] function \'{}\' cost time: {:.3f} s.'.format(func.__name__, end - start))
         return result
     return wrapper
 
@@ -344,22 +342,6 @@ def matrix_from_7_parameters(param):
         [2 * b * d - 2 * a * c, 2 * a * b + 2 * c * d, 1 - 2 * b * b - 2 * c * c, z],
         [0, 0, 0, 1]
     ])
-
-
-def select_best_weight(weights_paths, loss_path, best_path):
-    loss_array = np.load(loss_path)
-    mean_loss = loss_array.mean(-1)
-    inter = len(mean_loss) // len(weights_paths)
-    best_index = mean_loss[(inter - 1)::inter].argmin()
-    plt.figure()
-    plt.plot(np.arange(len(mean_loss)), mean_loss)
-    plt.xlabel('epoch')
-    plt.ylabel('loss')
-    plt.savefig(loss_path[:loss_path.rfind('.')] + '.png')
-    os.system('cp {} {}'.format(weights_paths[best_index], best_path))
-    print('Choose {} for the best weights, with loss at {}.'.format(
-        weights_paths[best_index], mean_loss[best_index]
-    ))
 
 
 if __name__ == '__main__':

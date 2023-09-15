@@ -8,7 +8,7 @@ class ProFEN(nn.Module):
         super(ProFEN, self).__init__()
         self.first = nn.Conv2d(in_channels=n_channels, out_channels=64, kernel_size=7, stride=2, padding=3,
                                bias=False)
-        self.encoder = models.resnet18(pretrained=True)
+        self.encoder = models.resnet18(weights=models.resnet.ResNet18_Weights.IMAGENET1K_V1)
         self.mlp = nn.Linear(512, out_features)
 
     def forward(self, _in):

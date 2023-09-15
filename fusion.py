@@ -15,7 +15,7 @@ from render import PRRenderer
 from network.profen import ProFEN
 from network.affine2d import Affine2dPredictor, Affine2dTransformer
 from network.track import TrackerKP
-from utils import resized_center_square, make_channels, tensor_to_cv2, cv2_to_tensor, time_it, images_alpha_lighten
+from utils import resized_center_square, make_channels, cv2_to_tensor, time_it, images_alpha_lighten
 from probe import Probe, deserialize_probes, ablation_num_of_probes, generate_probes
 from train import set_fold
 import paths

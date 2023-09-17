@@ -5,36 +5,10 @@ import cv2
 import numpy as np
 
 from train import set_fold
-from network.vos import LSTMVOSWithSCTestTime
 from network.track import TrackerKP
 from dataloaders import VOSDataloader
 from render import PRRenderer
 from utils import tensor_to_cv2, cv2_to_tensor, matrix_from_7_parameters
-
-
-def test_vos(base_dir='../2d3d_dataset', weights='weights/vos_fold0_best.pth'):
-    vos = LSTMVOSWithSCTestTime().cuda()
-    vos.load_state_dict(torch.load(weights))
-    vos.eval()
-    test_cases = set_fold(0)[1]
-    dataloader = VOSDataloader(
-        image_dirs=[os.path.join(base_dir, case_id) for case_id in test_cases],
-        label_dirs=[os.path.join(base_dir, case_id, 'label') for case_id in test_cases],
-    )
-    images, labels = dataloader.get_test_data()
-    for case in range(len(images)):
-        case_image = torch.stack(images[case], dim=0)
-        case_label = torch.stack(labels[case], dim=0)
-        vos.test_init(case_image[0: 1].cuda(), case_label[0: 1].cuda())
-        for i in range(1, len(case_image)):
-            pred = vos.test(case_image[i].unsqueeze(0).cuda()).detach().cpu()
-            gt = case_label[i].unsqueeze(0)
-            test_loss = torch.nn.MSELoss()(pred, gt)
-            print('Case [{}/{}], Image [{}/{}], Loss: {}'.format(
-                case + 1, len(images), i, len(case_image) - 1, float(test_loss)
-            ))
-            cv2.imwrite('vos_test/{}_{}.png'.format(case+1, i), tensor_to_cv2(pred.squeeze()))
-            print('Write OK.')
 
 
 def test_tracker(base_dir='../2d3d_dataset'):
@@ -84,5 +58,4 @@ def test_colmap(path):
 if __name__ == '__main__':
     os.environ['PYOPENGL_PLATFORM'] = 'osmesa'
     os.environ['CUDA_VISIBLE_DEVICES'] = '3'
-    # test_vos()
     test_tracker()

@@ -1,11 +1,9 @@
 import os
+import argparse
 
 import numpy as np
 import torch
 from torch.nn import MSELoss
-import torch.nn.functional as nnf
-from torchvision import transforms
-import cv2
 import matplotlib.pyplot as plt
 
 from network.profen import ProFEN
@@ -13,12 +11,16 @@ from network.affine2d import Affine2dPredictor, Affine2dTransformer
 from network.loss import RefInfoNCELoss, InfoNCELoss
 from dataloaders import ProbeSingleCaseDataloader
 from probe import deserialize_probes, Probe, ablation_num_of_probes
-from utils import resized_center_square, cv2_to_tensor, time_it
+from utils import time_it
+from agent import AgentTask
 import paths
 
                 
 def set_fold(fold, num_all_folds):
     num_all_cases = len(paths.ALL_CASES)
+    if num_all_cases % num_all_folds != 0:
+        raise Warning('The number of cases ({}) could not be divided into {} folds.'
+                      .format(num_all_cases, num_all_folds))
     fold_size = num_all_cases // num_all_folds
     test_indices = [fold * fold_size + i for i in range(fold_size)]
     test_cases = [paths.ALL_CASES[i] for i in test_indices]
@@ -29,7 +31,7 @@ def set_fold(fold, num_all_folds):
 
 class BaseTrainer:
     def __init__(self, model_name, model, save_dir, 
-                 draw_loss=True, save_cycle=0, n_epoch=300, n_iter=100):
+                 draw_loss=True, save_cycle=0, n_epoch=300, n_iter=None):
         """
         Args:
             model_name (str): 
@@ -46,7 +48,7 @@ class BaseTrainer:
         self.draw_loss = draw_loss
         self.save_cycle = save_cycle
         self.n_epoch = n_epoch
-        self.n_iter = n_iter
+        self.n_iter = n_iter            # should be set by num_total / batch_size
         os.makedirs(save_dir, exist_ok=True)
     
     def train_iter(self) -> float:
@@ -76,6 +78,8 @@ class BaseTrainer:
         self.model.train()
         if resume:
             train_losses = np.load('{}/loss.npy'.format(self.save_dir))
+            if len(train_losses) == 1 or len(train_losses[-1]) != len(train_losses[0]):
+                train_losses = train_losses[:-1]
             last_epoch = len(train_losses)
             self.model.load_state_dict(torch.load('{}/last.pth'.format(self.save_dir)))
             print('Resumed from epoch {}.'.format(last_epoch))
@@ -101,7 +105,7 @@ class BaseTrainer:
 
 
 class ProfenTrainer(BaseTrainer):
-    def __init__(self, ablation=None, fold=0, n_folds=0, batch_size=8):
+    def __init__(self, ablation=None, fold=0, n_folds=0, batch_size=8, **kwargs):
         """
         Args:
             ablation (str, optional):
@@ -114,6 +118,7 @@ class ProfenTrainer(BaseTrainer):
         model_name = 'profen' if ablation is None else 'profen_' + ablation
         save_dir = os.path.join(paths.WEIGHTS_DIR, 'fold{}'.format(fold), model_name)
         self.with_ref_loss = ablation != 'wo_ref_loss'
+        self.with_agent = ablation != 'wo_agent'
         self.loss_func = RefInfoNCELoss().cuda() if self.with_ref_loss else InfoNCELoss().cuda()
         train_cases, _ = set_fold(fold, n_folds)
         probes = [deserialize_probes(os.path.join(paths.RESULTS_DIR, case_id, paths.PROBE_FILENAME))
@@ -127,15 +132,15 @@ class ProfenTrainer(BaseTrainer):
         self.dataloader = ProbeSingleCaseDataloader(probes=probes, batch_size=batch_size)
         self.batch_size = batch_size
         n_iter = self.dataloader.num_total // batch_size
-        self.agent = AgentTask(mask_path=os.path.join(paths.DATASET_DIR, 'mask.png'))
-        super().__init__(model_name=model_name, model=model, save_dir=save_dir, n_iter=n_iter)
+        self.agent = AgentTask(occlusion_dir=paths.MASK_DIR)
+        super().__init__(model_name=model_name, model=model, save_dir=save_dir, n_iter=n_iter, **kwargs)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-4)
                 
     def train_iter(self) -> float:
         self.optimizer.zero_grad()
         batch = next(self.dataloader)
         render = torch.from_numpy(batch['data']).float().cuda()
-        noise = self.agent.apply(render)
+        noise = self.agent.apply(render) if self.with_agent else render
         positions = torch.from_numpy(batch['position']).float().cuda()
         features = self.model(torch.cat([render, noise], dim=0))
         if self.with_ref_loss:
@@ -148,9 +153,9 @@ class ProfenTrainer(BaseTrainer):
 
 
 class Affine2DTrainer(BaseTrainer):
-    def __init__(self, ablation=None, fold=0, n_folds=0, batch_size=8):
+    def __init__(self, ablation=None, fold=0, n_folds=0, batch_size=8, **kwargs):
         model = Affine2dPredictor()
-        model_name = 'affine2d' if ablation is None else 'affine2d' + ablation
+        model_name = 'affine2d' if ablation is None else 'affine2d_' + ablation
         save_dir = os.path.join(paths.WEIGHTS_DIR, 'fold{}'.format(fold), model_name)
         self.transformer = Affine2dTransformer().cuda()
         self.loss_func = MSELoss()
@@ -166,8 +171,8 @@ class Affine2DTrainer(BaseTrainer):
         self.dataloader = ProbeSingleCaseDataloader(probes=probes, batch_size=batch_size)
         self.batch_size = batch_size
         n_iter = self.dataloader.num_total // batch_size
-        self.agent = AgentTask(mask_path=os.path.join(paths.DATASET_DIR, 'mask.png'))
-        super().__init__(model_name=model_name, model=model, save_dir=save_dir, n_iter=n_iter)
+        self.agent = AgentTask(occlusion_dir=paths.MASK_DIR)
+        super().__init__(model_name=model_name, model=model, save_dir=save_dir, n_iter=n_iter, **kwargs)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-4)
         
     def train_iter(self) -> float:
@@ -185,46 +190,30 @@ class Affine2DTrainer(BaseTrainer):
         return float(loss)
 
 
-class AgentTask:
-    def __init__(self, mask_path):
-        self.mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
-        self.mask = resized_center_square(self.mask, out_size=512)
-        self.mask = cv2_to_tensor(self.mask)
-
-    def apply(self, i):
-        """
-        Actually the agent task should be rendering from a near position, but we use 2d data augmentation instead.
-        Because profen reduces 2 DoF, the agent task should reduce the remaining 4 DoF (3 translation and 1 rotation).
-        Also, in endoscopic images, some mask (due to the viewport or something else) exist, so we use a mask to help.
-        Args:
-            i (torch.Tensor): shape of (B, C, H, W)
-        Returns:
-            torch.Tensor:
-        """
-        transform = transforms.Compose([
-            transforms.RandomRotation(degrees=40, interpolation=transforms.InterpolationMode.NEAREST),
-            transforms.RandomResizedCrop(size=512, scale=(0.4, 1.1), ratio=(1.0, 1.0),
-                                         interpolation=transforms.InterpolationMode.NEAREST)
-        ])
-        i = transform(i)
-        if self.mask.size() != i.size()[-2:]:
-            mask = nnf.interpolate(self.mask, size=i.size()[-2:])
-        else:
-            mask = self.mask.to(i.device)
-        i = i * mask
-        return i
-
-
 if __name__ == '__main__':
-    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
-    for fold in range(0, 6):
-        ProfenTrainer(fold=fold, n_folds=6).train()
-        Affine2DTrainer(fold=fold, n_folds=6).train()
-    for fold in range(0, 6):
-        ProfenTrainer(ablation='wo_ref_loss', fold=fold, n_folds=6).train()
-        ProfenTrainer(ablation='div_4', fold=fold, n_folds=6).train()
-        ProfenTrainer(ablation='div_9', fold=fold, n_folds=6).train()
-        ProfenTrainer(ablation='div_16', fold=fold, n_folds=6).train()
-        Affine2DTrainer(ablation='div_4', fold=fold, n_folds=6).train()
-        Affine2DTrainer(ablation='div_9', fold=fold, n_folds=6).train()
-        Affine2DTrainer(ablation='div_16', fold=fold, n_folds=6).train()
+    parser = argparse.ArgumentParser(description='Training parameters')
+    parser.add_argument('--gpu', type=int, default=0, required=False, 
+                        help='train on which gpu')
+    parser.add_argument('--folds', type=list, default=[0, 1, 2, 3, 4, 5], required=False, 
+                        help='which folds should be trained, e.g. --folds 0 2 4')
+    parser.add_argument('--n_folds', type=int, default=6, required=False, 
+                        help='how many folds in total')
+    parser.add_argument('--ablation', type=bool, default=True, required=False, 
+                        help='whether do the ablation')
+    args = parser.parse_args()
+    args.folds = [int(f) for f in args.folds]
+    
+    os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
+    if not args.ablation:
+        for fold in args.folds:
+            ProfenTrainer(fold=fold, n_folds=args.n_folds).train()
+            Affine2DTrainer(fold=fold, n_folds=args.n_folds).train()
+    else:
+        for fold in args.folds:
+            ProfenTrainer(ablation='wo_ref_loss', fold=fold, n_folds=args.n_folds).train()
+            ProfenTrainer(ablation='div_4', fold=fold, n_folds=args.n_folds).train()
+            ProfenTrainer(ablation='div_9', fold=fold, n_folds=args.n_folds).train()
+            ProfenTrainer(ablation='div_16', fold=fold, n_folds=args.n_folds).train()
+            Affine2DTrainer(ablation='div_4', fold=fold, n_folds=args.n_folds).train()
+            Affine2DTrainer(ablation='div_9', fold=fold, n_folds=args.n_folds).train()
+            Affine2DTrainer(ablation='div_16', fold=fold, n_folds=args.n_folds).train()

@@ -35,12 +35,11 @@ class AgentTask:
         ])
         i = transform(i)
         hw = i.size()[-2:]
-        mask = torch.ones(hw, device=i.device)
+        mask = torch.ones(hw)
         for occ in self.occlusions:
             if random.random() > 0.5:           # each mask has a random chance to be applied
-                occ = occ.to(i.device)
                 mask *= occ if occ.size() == hw else nnf.interpolate(occ, size=hw)
-        i = i * mask
+        i *= mask.to(i.device)
         return i
     
     

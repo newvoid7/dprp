@@ -1,6 +1,7 @@
 import json
 import math
 import os
+import argparse
 
 import numpy as np
 import torch
@@ -11,13 +12,12 @@ import cv2
 import SimpleITK as sitk
 
 import paths
-from render import PRRenderer
 from network.profen import ProFEN
 from network.affine2d import Affine2dPredictor, Affine2dTransformer
 from network.track import TrackerKP
-from utils import resized_center_square, make_channels, cv2_to_tensor, time_it, images_alpha_lighten
-from probe import Probe, deserialize_probes, ablation_num_of_probes, generate_probes
-from train import set_fold
+from utils import resized_center_square, make_channels, tensor_to_cv2, cv2_to_tensor, time_it, images_alpha_lighten
+from probe import Probe, deserialize_probes, ablation_num_of_probes
+from dataloaders import set_fold, TestSingleCaseDataloader
 import paths
 
 CASE_INFO = {
@@ -27,99 +27,76 @@ CASE_INFO = {
     'LinXirong': 'type3',
     'LiuHongshan': 'type4',
     'SunYufeng': 'type1',
+    'YinRentang': 'type1',
     'WuQuan': 'type5',
     'WuYong': 'type4',
 }
 
 PROBE_PRESETS = {
     # azimuth should be in (-180, 180] degrees, elevation should be in [-90, 90] degrees.
+    # each lambda expression inputs a np.ndarray and outputs a bool np.ndarray
     'type1': {
         'description': 'The renal main axis is z=y, the renal hilum is face to (-1, -1, 0).',
-        'azimuth': lambda x: 45 <= x <= 135,
-        'elevation': lambda x: -60 <= x <= 0
+        'azimuth': lambda x: (45 <= x) & (x <= 135),
+        'elevation': lambda x: (-60 <= x) & (x <= 0)
     },
     'type2': {
         'description': 'The renal main axis is z=-x, the renal hilum is face to (-1, -1, -1).',
-        'azimuth': lambda x: 90 <= x <= 180,
-        'elevation': lambda x: -60 <= x <= 0
+        'azimuth': lambda x: (90 <= x) & (x <= 180),
+        'elevation': lambda x: (-60 <= x) & (x <= 0)
     },
     'type3': {
         'description': 'The renal main axis is z=y, the renal hilum is face to (1, -1, 0).',
-        'azimuth': lambda x: 45 <= x <= 135,
-        'elevation': lambda x: -45 <= x <= 15
+        'azimuth': lambda x: (45 <= x) & (x <= 135),
+        'elevation': lambda x: (-45 <= x) & (x <= 15)
     },
     'type4': {
         'description': 'The renal main axis is z=y, the renal hilum is face to (1, -1, 0).',
-        'azimuth': lambda x: 135 <= x <= 180 or -180 < x <= -135,
-        'elevation': lambda x: -60 <= x <= 30
+        'azimuth': lambda x: (135 <= x) & (x <= 180) | (-180 < x) & (x <= -135),
+        'elevation': lambda x: (-60 <= x) & (x <= 30)
     },
     'type5': {
         'description': 'The renal main axis is z=y, the renal hilum is face to (1, -1, 0).',
-        'azimuth': lambda x: -45 <= x <= 60,
-        'elevation': lambda x: -60 <= x <= 0
+        'azimuth': lambda x: (-45 <= x) & (x <= 60),
+        'elevation': lambda x: (-60 <= x) & (x <= 0)
     }
 }
 
 
-class Registrator:
-    def __init__(self, mesh_path, probes, profen_pth=None, affine2d_pth=None,
-                 image_size=512, window_size=10):
-        """
-        Do the preoperative and intraoperative image fusion.
-        Use a frame window to control the stability.
+class BaseAffineSolver:
+    def __init__(self) -> None:
+        return
+    
+    def solve(self, src: np.ndarray, dst: np.ndarray, new_in: np.ndarray):
+        '''
+        Compute the affine factor from src to dst, and apply it on new_in
         Args:
-            mesh_path (str):
-            probes (list of Probe):
-            profen_pth:
-            affine2d_pth:
-            image_size (int or tuple of int):
-            window_size: TODO use a window for calibration
-        """
-        self.image_size = image_size
-        self.renderer = PRRenderer(mesh_path, out_size=image_size)
-        self.feature_extractor = ProFEN().cuda()
-        self.feature_extractor.load_state_dict(torch.load(profen_pth))
-        self.feature_extractor.eval()
-        self.affine_predictor = Affine2dPredictor().cuda()
-        self.affine_predictor.load_state_dict(torch.load(affine2d_pth))       # TODO Affine transform
-        self.affine_predictor.eval()
-        self.affine_transformer = Affine2dTransformer().cuda()
-        self.feature_sim_func = CosineSimilarity()
-
-        self.probes = probes
-        self.probe_sphere_coord = [p.get_sphere_coord() for p in probes]
-        self.probe_render_2ch = [make_channels(p.render.transpose((2, 0, 1)),
-                                               [lambda x: x[0] != 0, lambda x: (x[0] == 0) & (x.any(0))])
-                                 for p in probes]
-        self.probe_feature = [self.feature_extractor(torch.from_numpy(r).unsqueeze(0).cuda()).detach().cpu()
-                              for r in self.probe_render_2ch]
-
-        self.tracker = None
-
-        self.window_size = window_size
-        self.frame_window = []
-
-    def affine_transform_network(self, ref0, ref1, src):
-        """
-        Use a 2D affine registration network to evaluate the affine transform between ref0 and ref1,
-        then apply it on src.
-        Args:
-            ref0 (torch.Tensor): (B, C=2, H, W), values in [0, 1], rendered from probe
-            ref1 (torch.Tensor): (B, C=2, H, W), values in [0, 1], segmentation
-            src (torch.Tensor): (B, C'=3, H, W), the re-rendered image
+            src (np.ndarray): (C=2, H, W), values in [0, 1]
+            dst (np.ndarray): (C=2, H, W), values in [0, 1]
+            new_in (np.ndarray): (C'=3, H', W')
         Returns:
-            (np.ndarray, dict):
-                shape of (H, W, BGR), transformed image.
-                dict of affine factors (translation, rotation and scale).
-        """
-        params = self.affine_predictor(ref0.cuda(), ref1.cuda()).detach().cpu().squeeze()
-        params = params.detach().cpu().squeeze()
+            (np.ndarray): (C', H', W')
+        '''
+        pass
+
+
+class NetworkAffineSolver(BaseAffineSolver):
+    def __init__(self, weight_path) -> None:
+        self.predictor = Affine2dPredictor().cuda()
+        self.transformer = Affine2dTransformer().cuda()
+        return
+    
+    def solve(self, src: np.ndarray, dst: np.ndarray, new_in: np.ndarray):
+        ref0 = torch.from_numpy(src.unsqueeze(0)).cuda()
+        ref1 = torch.from_numpy(dst.unsqueeze(0)).cuda()
+        params = self.predictor(ref0, ref1).detach().cpu().squeeze()
         tx, ty, rot, scale = params
-        tx = self.affine_transformer.tx_lambda(tx)
-        ty = self.affine_transformer.ty_lambda(ty)
-        rot = self.affine_transformer.rot_lambda(rot)
-        scale = self.affine_transformer.scale_lambda(scale)
-        new_ratio = src.size(2) / src.size(3)
+        tx = self.transformer.tx_lambda(tx)
+        ty = self.transformer.ty_lambda(ty)
+        rot = self.transformer.rot_lambda(rot)
+        scale = self.transformer.scale_lambda(scale)
+        new_in_tensor = cv2_to_tensor(new_in).unsqueeze(0)
+        new_ratio = new_in.size(2) / new_in.size(3)
         old_ratio = ref0.size(2) / ref0.size(3)
         if new_ratio < old_ratio:
             tx = tx * new_ratio / old_ratio
@@ -129,8 +106,9 @@ class Registrator:
             torch.stack([1.0 / scale * torch.cos(rot), 1.0 / scale * new_ratio * torch.sin(rot), tx], dim=0),
             torch.stack([-1.0 / scale / new_ratio * torch.sin(rot), 1.0 / scale * torch.cos(rot), ty], dim=0)
         ], dim=0).unsqueeze(0)
-        grid = nnf.affine_grid(mat, src.size(), align_corners=False)
-        transformed = nnf.grid_sample(src, grid, mode='bilinear').numpy().squeeze().transpose((1, 2, 0))
+        grid = nnf.affine_grid(mat, new_in_tensor.size(), align_corners=False)
+        transformed = nnf.grid_sample(new_in_tensor, grid, mode='bilinear').squeeze()
+        transformed = tensor_to_cv2(transformed)
         affine_factor = {
             'translation x': tx,
             'translation y': ty,
@@ -139,42 +117,42 @@ class Registrator:
         }
         return transformed, affine_factor
 
+
+class GeometryAffineSolver(BaseAffineSolver):
+    def __init__(self) -> None:
+        return
+    
     @staticmethod
-    def affine_transform_geometry(ref0, ref1, src):
-        """
-        Use a geometric based method to evaluate the affine transform between ref0 and ref1, then apply it on src.
-        Args:
-            ref0 (torch.Tensor): (B=1, C=2, H, W), values are 0/1, rendered from probe
-            ref1 (torch.Tensor): (B=1, C=2, H, W), values are 0/1, segmentation
-            src (torch.Tensor): (B=1, C'=3, H, W), the re-rendered image
-        Returns:
-            (np.ndarray, dict):
-                shape of (H, W, BGR), transformed image.
-                dict of affine factors (translation, rotation and scale).
-        """
-        def centroid(i: torch.Tensor):
-            x = (i.sum(1) * torch.arange(i.size(0))).sum() / i.sum()
-            y = (i.sum(0) * torch.arange(i.size(1))).sum() / i.sum()
-            return x, y
-        h = ref0.size(2)
-        w = ref0.size(3)
-        ch0, cw0 = centroid(ref0[0, ...].sum(0))
-        ch1, cw1 = centroid(ref1[0, ...].sum(0))
-        s = (ref1.sum() / ref0.sum()) ** 0.5
-        tw = (cw0 / w * 2 - 1) - (cw1 / w * 2 - 1) / s
-        th = (ch0 / h * 2 - 1) - (ch1 / h * 2 - 1) / s
+    def centroid(i: np.ndarray):
+        '''
+        Args: 
+            i (np.ndarray): (H, W)
+        '''
+        x = (i.sum(1) * np.arange(i.shape[0])).sum() / i.sum()
+        y = (i.sum(0) * np.arange(i.shape[1])).sum() / i.sum()
+        return x, y
+    
+    def solve(self, src: np.ndarray, dst: np.ndarray, new_in: np.ndarray):
+        h = src.shape[1]
+        w = src.shape[2]
+        ch0, cw0 = self.centroid(src.sum(0))
+        ch1, cw1 = self.centroid(dst.sum(0))
+        s = (dst.sum() / src.sum()) ** 0.5
+        new_in_tensor = cv2_to_tensor(new_in).unsqueeze(0)
+        tw = torch.tensor((cw0 / w * 2 - 1) - (cw1 / w * 2 - 1) / s, dtype=torch.float32)
+        th = torch.tensor((ch0 / h * 2 - 1) - (ch1 / h * 2 - 1) / s, dtype=torch.float32)
         rot_batch = [torch.tensor(i / 180 * math.pi) for i in range(-60, 60)]
         mat_batch = torch.stack([torch.stack([
             torch.stack([1.0 / s * torch.cos(rot), 1.0 / s * (h / w) * torch.sin(rot), tw], dim=0),
             torch.stack([-1.0 / s / (h / w) * torch.sin(rot), 1.0 / s * torch.cos(rot), th], dim=0)
         ], dim=0) for rot in rot_batch], dim=0)
-        ref0_batch = ref0.repeat(len(rot_batch), 1, 1, 1)
+        ref0_batch = torch.from_numpy(src).unsqueeze(0).repeat(len(rot_batch), 1, 1, 1)
         grid_batch = nnf.affine_grid(mat_batch, ref0_batch.size(), align_corners=False)
         trans0_batch = nnf.grid_sample(ref0_batch, grid_batch, mode='nearest')
-        errors = np.asarray([float(nnf.mse_loss(trans0, ref1.squeeze())) for trans0 in trans0_batch])
+        errors = np.asarray([float(nnf.mse_loss(trans0, torch.from_numpy(dst))) for trans0 in trans0_batch])
         rot_index = errors.argmin()
         rot = rot_batch[rot_index]
-        new_ratio = src.size(2) / src.size(3)
+        new_ratio = new_in.shape[1] / new_in.shape[2]
         if new_ratio < (h / w):
             tw = tw * new_ratio / (h / w)
         else:
@@ -183,8 +161,9 @@ class Registrator:
             torch.stack([1.0 / s * torch.cos(rot), 1.0 / s * new_ratio * torch.sin(rot), tw], dim=0),
             torch.stack([-1.0 / s / new_ratio * torch.sin(rot), 1.0 / s * torch.cos(rot), th], dim=0)
         ], dim=0).unsqueeze(0)
-        grid = nnf.affine_grid(mat, src.size(), align_corners=False)
-        transformed = nnf.grid_sample(src, grid, mode='bilinear').squeeze().numpy().transpose((1, 2, 0))
+        grid = nnf.affine_grid(mat, new_in_tensor.size(), align_corners=False)
+        transformed = nnf.grid_sample(new_in_tensor, grid, mode='bilinear').squeeze()
+        transformed = tensor_to_cv2(transformed)
         affine_factor = {
             'translation x': th,
             'translation y': tw,
@@ -192,105 +171,101 @@ class Registrator:
             'scale factor': s
         }
         return transformed, affine_factor
-
-    def overlap(self, frame, segmentation, index):
-        """
-        Overlap a frame with a rgb rendered from position of anchor_index
-        Args:
-            frame (np.ndarray): original picture, 0-255
-            segmentation (torch.Tensor): Tensor (C=2, H, W), values are 0/1,
-                first channel is kidney, second channel is tumor
-            index (int):
-        Returns:
-            (np.ndarray, np.ndarray, np.ndarray, dict):
-                aligned frame and re-rendered, shape of (H, W, BGR), 0-255, the overlapped image.
-                shape of (H, W, BGR), the re-rendered image using parameters from probes[index].
-                shape of (H, W, BGR), the re-rendered image after transformation, values in 0-1
-        """
-        frame = (frame / 255.0).astype(np.float32)
-        probe_render = torch.from_numpy(self.probe_render_2ch[index])
-        re_rendered = self.renderer.render(self.probes[index].get_matrix(), draw_mesh=[0, 1], mode='RGB')[..., ::-1]
-        transformed, affine_factor = self.affine_transform_geometry(
-            probe_render.unsqueeze(0), segmentation.unsqueeze(0), cv2_to_tensor(re_rendered).unsqueeze(0))
-        aligned = (images_alpha_lighten(frame, transformed / transformed.max(), 0.5) * 255).astype(np.uint8)
-        return aligned, re_rendered, transformed, affine_factor
-
-    def overlap_tracker(self, frame, index):
-        segmentation = self.tracker(frame)
-        probe_render = torch.from_numpy(self.probe_render_2ch[index])
-        re_rendered = self.renderer.render(self.probes[index].get_matrix(), draw_mesh=[0, 1], mode='RGB')[..., ::-1]
-        transformed, affine_factor = self.affine_transform_geometry(
-            probe_render.unsqueeze(0), segmentation.unsqueeze(0), cv2_to_tensor(re_rendered).unsqueeze(0))
-        aligned = (images_alpha_lighten(frame, transformed / transformed.max(), 0.5) * 255).astype(np.uint8)
-        return aligned, re_rendered, transformed, affine_factor
-
-    def init_tracker(self, image, segmentation):
-        self.tracker = TrackerKP(image, segmentation)
+    
+    
+class MontionAffineSolver(BaseAffineSolver):
+    def __init__(self) -> None:
+        self.image_list = []
+        self.tracker = TrackerKP()
+        
+    def solve(self, src: np.ndarray, dst: np.ndarray, new_in: np.ndarray):
+        last_frame = self.image_list[-1]
+        
         return
 
+    
+class Fuser:
+    def __init__(self, case_type, probes, feature_extractor=None, affine2d_solver=None,
+                 image_size=512):
+        """
+        Do the preoperative and intraoperative image fusion.
+        Use a frame window to control the stability.
+        Args:
+            probes (list of Probe):
+            feature_extractor (torch.nn.Module):
+            affine2d_solver (BaseAffineSolver):
+            image_size (int or tuple of int):
+        """
+        self.image_size = image_size
+        self.feature_extractor = feature_extractor
+        self.affine_solver = affine2d_solver
+        self.feature_sim_func = CosineSimilarity()
+
+        self.probes = probes
+        # (Np,)
+        self.probe_azimuth = np.asarray([p.get_spcoord_dict()['azimuth'] for p in probes])
+        # (Np,)
+        self.probe_elevation = np.asarray([p.get_spcoord_dict()['elevation'] for p in probes])
+        # (Np, 2, H, W)
+        self.rendered_2ch_pool = np.asarray([make_channels(p.render.transpose((2, 0, 1)),
+                                                            [lambda x: x[0] != 0, lambda x: (x[0] == 0) & (x.any(0))])
+                                            for p in probes])
+        # (Np, L) 
+        # to avoid CUDA OOM, should not input all of the rendered_2ch_pool as 1 batch into feature extractor
+        self.feature_pool = []
+        bs = 64
+        for i in range(len(self.rendered_2ch_pool) // bs + 1):
+            batch = np.asarray(self.rendered_2ch_pool[i * bs : min(i * bs + bs, len(self.rendered_2ch_pool))])
+            batch = torch.from_numpy(batch).cuda()
+            pred = self.feature_extractor(batch).detach().cpu()
+            self.feature_pool.append(pred)
+        self.feature_pool = torch.cat(self.feature_pool, dim=0)
+
+        # PPS
+        self.restriction = PROBE_PRESETS[case_type]
+
     @time_it
-    def add_frame(self, frame, segment, prior_type='type1'):
+    def add_frame(self, frame, segment_2ch, prior_type='type1', ablation=None):
         """
         Use the closest probe in the given range.
         Args:
-            frame (np.ndarray):
-            segment (torch.Tensor): shape of (C=2, H, W). values are 0/1
+            frame (np.ndarray): shape of (H, W, BGR)
+            segment (np.ndarray): shape of (C=2, H, W). values are 0/1
             prior_type (str): indicate which type of kidney.
         Returns:
             dict:
                 'render' (np.ndarray): shape of (H, W, 3)
         """
-        seg_feature = self.feature_extractor(segment.unsqueeze(0).cuda()).detach().cpu()
-        feature_sim = np.asarray([self.feature_sim_func(seg_feature, f).numpy() for f in self.probe_feature])
-        restriction = PROBE_PRESETS[prior_type]
-        out_restricted_area = [
-            not restriction['azimuth'](c['azimuth'])
-            or not restriction['elevation'](c['elevation'])
-            for c in self.probe_sphere_coord
-        ]
-        feature_sim[out_restricted_area] = -1               # TODO ablation PPS
-        hit_index = feature_sim.argmax()
-        hit_render = self.probes[hit_index].render
-        fused, re_rendered, transformed, affine_factor = self.overlap(frame, segment, hit_index)
-
+        # find the best matching probe
+        seg_feature = self.feature_extractor(torch.from_numpy(segment_2ch).unsqueeze(0).cuda()).detach().cpu()
+        similarity = self.feature_sim_func(seg_feature, self.feature_pool).numpy()
+        if ablation is None or ablation != 'wo_pps':
+            similarity = np.where(self.restriction['azimuth'](self.probe_azimuth) & self.restriction['elevation'](self.probe_elevation),
+                                  similarity,
+                                  -1)
+        hit_index = similarity.argmax()
+        # registration src
+        hit_render_2ch = self.rendered_2ch_pool[hit_index]
+        # re-render with additional information, registration new_in
+        re_rendered = self.probes[hit_index].re_render(out_size=self.image_size, draw_mesh=None)
+        # new_out
+        transformed, affine_factor = self.affine_solver.solve(hit_render_2ch, segment_2ch, re_rendered)
+        # fuse
+        fused = (images_alpha_lighten(frame, transformed / transformed.max(), 0.5) * 255).astype(np.uint8)
+        # information
         frame_info = {
-            'raw': frame,
+            'original': frame,
             'fusion': fused,
             'hit index': hit_index,
-            'hit parameter': self.probe_sphere_coord[hit_index],
-            'hit render': hit_render,
+            'hit azimuth': self.probe_azimuth[hit_index],
+            'hit elevation': self.probe_elevation[hit_index],
+            'hit render': self.probes[hit_index].render,
             're-rendered': re_rendered,
             'affine factor': affine_factor,
             'transformed': transformed,
         }
         return frame_info
 
-    def add_frame_use_neighbor(self, frame, prior_type='type1'):
-        segment = self.tracker()
-        seg_feature = self.feature_extractor(segment.unsqueeze(0).cuda()).detach().cpu()
-        feature_sim = np.asarray([self.feature_sim_func(seg_feature, f).numpy() for f in self.probe_feature])
-        restriction = PROBE_PRESETS[prior_type]
-        out_restricted_area = [
-            not restriction['azimuth'](c['azimuth'])
-            or not restriction['elevation'](c['elevation'])
-            for c in self.probe_sphere_coord
-        ]
-        feature_sim[out_restricted_area] = -1               # TODO ablation PPS
-        hit_index = feature_sim.argmax()
-        hit_render = self.probes[hit_index].render
-        fused, re_rendered, transformed, affine_factor = self.overlap(frame, segment, hit_index)
-
-        frame_info = {
-            'fusion': fused,
-            'hit index': hit_index,
-            'hit parameter': self.probe_sphere_coord[hit_index],
-            'hit render': hit_render,
-            're-rendered': re_rendered,
-            'affine factor': affine_factor,
-            'transformed': transformed,
-        }
-        return frame_info
-    
 
 def evaluate(predict, label):
     predict = predict[0]
@@ -312,58 +287,65 @@ def evaluate(predict, label):
     }
 
 
-def alpha_test(fold=0, **kwargs):
+def test(fold=0, n_fold=6, ablation=None):
     base_dir = paths.DATASET_DIR
-    _, test_cases = set_fold(fold)
+    _, test_cases = set_fold(fold, n_fold)
     for case_id in test_cases:
+        # directories and dataloader
         case_dir = os.path.join(base_dir, case_id)
-        case_type = CASE_INFO[case_id]
-        filenames = [fn for fn in os.listdir(case_dir) if fn.endswith('.jpg') or fn.endswith('.png')]
-        filenames.sort(key=lambda x: int(x[:-4]))
+        result_dir = paths.RESULTS_DIR if ablation is None else paths.RESULTS_DIR + '_' + ablation
+        os.makedirs(result_dir, exist_ok=True)
+        fusion_dir = os.path.join(result_dir, case_id, 'fusion')
+        os.makedirs(fusion_dir, exist_ok=True)
+        case_dataloader = TestSingleCaseDataloader(case_dir)
+        
+        # probes
         probe_path = os.path.join(paths.RESULTS_DIR, case_id, paths.PROBE_FILENAME)
-        mesh_path = os.path.join(paths.DATASET_DIR, case_id, paths.MESH_FILENAME)
-        if os.path.exists(probe_path):
-            probes = deserialize_probes(probe_path)
+        probes = deserialize_probes(probe_path)
+        if ablation is not None and ablation.startswith('div_'):
+            probes = ablation_num_of_probes(probes, factor=int(ablation[4:]) ** 0.5)
+        
+        # feature extractor
+        profen_weight_dir = 'profen' if ablation is None else 'profen_' + ablation
+        profen_path = '{}/fold{}/{}/best.pth'.format(paths.WEIGHTS_DIR, fold, profen_weight_dir)
+        profen = ProFEN().cuda()
+        profen.load_state_dict(torch.load(profen_path))
+        profen.eval()
+        
+        # affine 2d solver
+        affine2d_weight_dir = 'affine2d' if ablation is None else 'affine2d_' + ablation
+        affine2d_path = '{}/fold{}/{}/best.pth'.format(paths.WEIGHTS_DIR, fold, affine2d_weight_dir)
+        affine_network = NetworkAffineSolver(weight_path=affine2d_path)
+        affine_geometry = GeometryAffineSolver()
+        
+        # case type
+        if case_id not in CASE_INFO.keys():
+            case_type = 'type1'
         else:
-            probes = generate_probes(mesh_path)
-        # give a new mesh to re-render in the fusion result
-        height, width = cv2.imread(os.path.join(case_dir, filenames[0])).shape[:-1]
-        profen_path = 'weights/fold{}/profen_best.pth'.format(fold)
-        result_dir = paths.RESULTS_DIR
-        if 'ablation_number_of_probes' in kwargs.keys():
-            factor = kwargs['ablation_number_of_probes']
-            probes = ablation_num_of_probes(probes, factor=factor)
-            profen_path = 'weights/fold{}/profen_abl{}_best.pth'.format(fold, factor)
-            result_dir = 'results_abl{}'.format(factor)
-        if 'ablation_loss_function' in kwargs.keys():
-            name = kwargs['ablation_loss_function']
-            profen_path = 'weights/fold{}/profen_{}_best.pth'.format(fold, name)
-            result_dir = 'result_{}'.format(name)
-        registrator = Registrator(
-            mesh_path=mesh_path, probes=probes,
-            profen_pth=profen_path,
-            affine2d_pth='weights/fold{}/affine2d_best.pth'.format(fold),
-            image_size=(height, width), window_size=3
+            case_type = CASE_INFO[case_id]
+        
+        # fuse
+        registrator = Fuser(
+            probes=probes,
+            case_type=case_type,
+            feature_extractor=profen,
+            affine2d_solver=affine_geometry,
+            image_size=case_dataloader.image_size(),
         )
-        os.makedirs(os.path.join('{}/{}/fusion'.format(result_dir, case_id)), exist_ok=True)
+
         evaluations = {}
-        for i, fn in enumerate(filenames):
-            photo_path = os.path.join(case_dir, fn)
-            label_path = os.path.join(case_dir, 'label', fn)
-            if not os.path.exists(photo_path) or not os.path.exists(label_path):
+        for i in range(case_dataloader.length()):
+            photo = case_dataloader.images[i]
+            orig_segment = case_dataloader.labels[i]
+            if orig_segment is None:        # some frames do not have segmented labels
                 continue
-            photo = cv2.imread(photo_path)
-            orig_segment = cv2.imread(label_path)
-            if i == 0:
-                registrator.init_tracker(photo, orig_segment)
             segment = resized_center_square(orig_segment, out_size=512).transpose((2, 0, 1))
             segment = make_channels(segment, [
                 lambda x: x[2] != 0,
                 lambda x: x[1] != 0
             ])
-            segment = torch.from_numpy(segment).float()
             frame_info = registrator.add_frame(photo, segment, prior_type=case_type)
-            cv2.imwrite('{}/{}/fusion/{}'.format(result_dir, case_id, fn), frame_info['fusion'])
+            cv2.imwrite('{}/{}'.format(fusion_dir, case_dataloader.fns[i]), frame_info['fusion'])
             metrics = evaluate(
                 make_channels(frame_info['transformed'].transpose((2, 0, 1)), [
                     lambda x: x.any(0) & (x[0] < x[1] + x[2]) & (x[2] < x[0] + x[1]),
@@ -374,8 +356,8 @@ def alpha_test(fold=0, **kwargs):
                     lambda x: x[1] != 0
                 ])
             )
-            evaluations[fn] = metrics
-            print('Case: {} Frame: {} is OK.'.format(case_id, fn))
+            evaluations[case_dataloader.fns[i]] = metrics
+            print('Case: {} Frame: {} is OK.'.format(case_id, case_dataloader.fns[i]))
         average_metrics = {
             'dice':
                 np.asarray([case['dice'] for case in evaluations.values()]).mean(),
@@ -392,9 +374,28 @@ def alpha_test(fold=0, **kwargs):
 
 
 if __name__ == '__main__':
-    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+    parser = argparse.ArgumentParser(description='Fusion settings')
+    parser.add_argument('--gpu', type=int, default=3, required=False, help='do inference on which gpu')
+    parser.add_argument('--folds', type=list, default=[0], required=False, 
+                        help='which folds should be tested in fusion, e.g. --folds 0 2 4')
+    parser.add_argument('--n_folds', type=int, default=6, required=False, 
+                        help='how many folds in total')
+    parser.add_argument('--ablation', type=bool, default=False, required=False, 
+                        help='whether do the ablation')
+    args = parser.parse_args()
+    args.folds = [int(f) for f in args.folds]
+    
+    os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
     os.environ['PYOPENGL_PLATFORM'] = 'egl'
-    for n_fold in range(4):
-        alpha_test(n_fold)
-        alpha_test(n_fold, ablation_loss_function='infonce')
-        # alpha_test(n_fold, ablation_number_of_probes=2)
+
+    if not args.ablation:
+        for fold in args.folds:
+            test(fold, args.n_folds)
+    else:
+        for fold in args.folds:
+            test(fold, args.n_folds, ablation='wo_ref_loss')
+            test(fold, args.n_folds, ablation='div_4')
+            test(fold, args.n_folds, ablation='div_9')
+            test(fold, args.n_folds, ablation='div_16')
+            test(fold, args.n_folds, ablation='wo_agent')
+            test(fold, args.n_folds, ablation='wo_pps')

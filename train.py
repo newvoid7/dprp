@@ -14,19 +14,7 @@ from probe import deserialize_probes, Probe, ablation_num_of_probes
 from utils import time_it
 from agent import AgentTask
 import paths
-
-                
-def set_fold(fold, num_all_folds):
-    num_all_cases = len(paths.ALL_CASES)
-    if num_all_cases % num_all_folds != 0:
-        raise Warning('The number of cases ({}) could not be divided into {} folds.'
-                      .format(num_all_cases, num_all_folds))
-    fold_size = num_all_cases // num_all_folds
-    test_indices = [fold * fold_size + i for i in range(fold_size)]
-    test_cases = [paths.ALL_CASES[i] for i in test_indices]
-    train_indices = [i for i in range(len(paths.ALL_CASES)) if i not in test_indices]
-    train_cases = [paths.ALL_CASES[i] for i in train_indices]
-    return train_cases, test_cases
+from dataloaders import set_fold
 
 
 class BaseTrainer:
@@ -198,7 +186,7 @@ if __name__ == '__main__':
                         help='which folds should be trained, e.g. --folds 0 2 4')
     parser.add_argument('--n_folds', type=int, default=6, required=False, 
                         help='how many folds in total')
-    parser.add_argument('--ablation', type=bool, default=True, required=False, 
+    parser.add_argument('--ablation', type=bool, default=False, required=False, 
                         help='whether do the ablation')
     args = parser.parse_args()
     args.folds = [int(f) for f in args.folds]

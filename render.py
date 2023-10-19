@@ -67,7 +67,7 @@ class PRRenderer:
         self.scene.add_node(self.node_light)
         return
 
-    def render(self, mat, draw_mesh=None, mode='RGB'):
+    def render(self, mat, draw_mesh=None, mode='BGR'):
         """
         Output the np.ndarray (H, W, 3) which is ready for cv2 to write.
         Args:
@@ -94,6 +94,9 @@ class PRRenderer:
         if mode == 'RGB':
             flags = RenderFlags.RGBA
             render_output = self.renderer.render(self.scene, flags=flags)[0][..., :-1]
+        elif mode == 'BGR':
+            flags = RenderFlags.RGBA
+            render_output = self.renderer.render(self.scene, flags=flags)[0][..., -2::-1]
         elif mode == 'RGBA':
             flags = RenderFlags.RGBA
             render_output = self.renderer.render(self.scene, flags=flags)[0]

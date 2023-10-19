@@ -79,6 +79,11 @@ class Probe:
 
     def get_render_width(self):
         return self.render.shape[1]
+    
+    def re_render(self, out_size=512, draw_mesh=None, mode='BGR'):
+        # The renderer will be destroyed every time, might have some performance flaw
+        renderer = PRRenderer(self.mesh_path, out_size=out_size)
+        return renderer.render(mat=self.get_matrix(), draw_mesh=draw_mesh, mode=mode)
 
 
 @time_it
@@ -160,7 +165,7 @@ def deserialize_probes(read_path):
     Read from file
     """
     read_dict = np.load(read_path)
-    mesh_path = read_dict['mesh_path']
+    mesh_path = str(read_dict['mesh_path'])
     camera_positions = read_dict['camera_position']
     camera_quaternions = read_dict['camera_quaternion']
     renders = read_dict['render']

@@ -1,8 +1,25 @@
+import os
+
 from batchgenerators.dataloading.data_loader import SlimDataLoaderBase
 import numpy as np
+import cv2
 
 from utils import cosine_similarity, make_channels
 from probe import Probe
+import paths
+
+                
+def set_fold(fold, num_all_folds):
+    num_all_cases = len(paths.ALL_CASES)
+    if num_all_cases % num_all_folds != 0:
+        raise Warning('The number of cases ({}) could not be divided into {} folds.'
+                      .format(num_all_cases, num_all_folds))
+    fold_size = num_all_cases // num_all_folds
+    test_indices = [fold * fold_size + i for i in range(fold_size)]
+    test_cases = [paths.ALL_CASES[i] for i in test_indices]
+    train_indices = [i for i in range(len(paths.ALL_CASES)) if i not in test_indices]
+    train_cases = [paths.ALL_CASES[i] for i in train_indices]
+    return train_cases, test_cases
 
 
 class ProbeSingleCaseDataloader(SlimDataLoaderBase):
@@ -54,6 +71,26 @@ class ProbeSingleCaseDataloader(SlimDataLoaderBase):
             'position': np.asarray([p.camera_position for p in probes])
         }
         return data
+    
+    
+class TestSingleCaseDataloader:
+    def __init__(self, case_dir):
+        image_fns = [fn for fn in os.listdir(case_dir) if fn.endswith('.png')]
+        image_fns.sort(key=lambda x: int(x[:-4]))
+        label_dir = os.path.join(case_dir, 'label')
+        label_fns = [fn for fn in os.listdir(label_dir) if fn.endswith('.png')]
+        label_fns.sort(key=lambda x: int(x[:-4]))
+        self.images = [cv2.imread(os.path.join(case_dir, fn)) for fn in image_fns]
+        # in some cases, not all images have corresponding labels
+        # but still keep length of 2 lists the same
+        self.labels = [cv2.imread(os.path.join(label_dir, fn)) if fn in label_fns else None for fn in image_fns]
+        self.fns = image_fns
+        
+    def image_size(self):
+        return self.images[0].shape[:-1]
+    
+    def length(self):
+        return len(self.images)
 
 
 if __name__ == '__main__':

@@ -76,7 +76,7 @@ class Affine2dTransformer(nn.Module):
             torch.stack([-1.0 / scale / (h / w) * torch.sin(rot), 1.0 / scale * torch.cos(rot), ty], dim=1)
         ], dim=1)
         grid = nnf.affine_grid(mtx, src.size(), align_corners=False)
-        _out = nnf.grid_sample(src, grid, mode='bilinear')
+        _out = nnf.grid_sample(src, grid, mode='bilinear', align_corners=False)
         return _out
 
 

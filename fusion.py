@@ -15,10 +15,11 @@ import paths
 from network.profen import ProFEN
 from network.affine2d import Affine2dPredictor, Affine2dTransformer
 from network.track import TrackerKP
-from utils import resized_center_square, make_channels, tensor_to_cv2, cv2_to_tensor, time_it, images_alpha_lighten
+from utils import crop_and_resize_square, make_channels, tensor_to_cv2, cv2_to_tensor, time_it, images_alpha_lighten
 from probe import Probe, deserialize_probes, ablation_num_of_probes
 from dataloaders import set_fold, TestSingleCaseDataloader
 import paths
+from render import PRRenderer
 
 CASE_INFO = {
     'GongDaoming': 'type1',
@@ -67,17 +68,44 @@ class BaseAffineSolver:
     def __init__(self) -> None:
         return
     
-    def solve(self, src: np.ndarray, dst: np.ndarray, new_in: np.ndarray):
-        '''
-        Compute the affine factor from src to dst, and apply it on new_in
+    def solve(self, src: np.ndarray, dst: np.ndarray):
+        """
+        Compute the affine factor from src to dst
         Args:
             src (np.ndarray): (C=2, H, W), values in [0, 1]
             dst (np.ndarray): (C=2, H, W), values in [0, 1]
-            new_in (np.ndarray): (C'=3, H', W')
         Returns:
-            (np.ndarray): (C', H', W')
-        '''
+            (torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor): tx, ty, rot, scale
+        """
         pass
+    
+    def solve_and_affine(self, src: np.ndarray, dst: np.ndarray, new_in: np.ndarray):
+        """
+        Args:
+            src (np.ndarray): (C=2, H, W), values in [0, 1]
+            dst (np.ndarray): (C=2, H, W), values in [0, 1]
+            new_in (np.ndarray): from cv2, (H, W, C(BGR))
+        Returns:
+            np.ndarray: (H, W, C(BGR))
+        """
+        tx, ty, rot, scale = self.solve(src, dst)
+        old_ratio = src.shape[1] / src.shape[2]
+        new_ratio = new_in.shape[0] / new_in.shape[1]
+        inv_scale = 1.0 / scale
+        # because of center crop, src is always a part of new_in
+        if new_ratio < old_ratio:
+            tx = tx * new_ratio / old_ratio
+        else:
+            ty = ty / new_ratio * old_ratio
+        mat = torch.stack([
+            torch.stack([inv_scale * torch.cos(rot), inv_scale * new_ratio * torch.sin(rot), ty], dim=0),
+            torch.stack([-inv_scale / new_ratio * torch.sin(rot), inv_scale * torch.cos(rot), tx], dim=0)
+        ], dim=0).unsqueeze(0)
+        new_in_tensor = cv2_to_tensor(new_in).unsqueeze(0)
+        grid = nnf.affine_grid(mat, new_in_tensor.size(), align_corners=False)
+        transformed = nnf.grid_sample(new_in_tensor, grid, mode='bilinear', align_corners=False).squeeze()
+        transformed = tensor_to_cv2(transformed)
+        return transformed, mat
 
 
 class NetworkAffineSolver(BaseAffineSolver):
@@ -86,40 +114,21 @@ class NetworkAffineSolver(BaseAffineSolver):
         self.transformer = Affine2dTransformer().cuda()
         return
     
-    def solve(self, src: np.ndarray, dst: np.ndarray, new_in: np.ndarray):
-        ref0 = torch.from_numpy(src.unsqueeze(0)).cuda()
-        ref1 = torch.from_numpy(dst.unsqueeze(0)).cuda()
-        params = self.predictor(ref0, ref1).detach().cpu().squeeze()
+    def solve(self, src: np.ndarray, dst: np.ndarray):
+        src_tensor = torch.from_numpy(src).unsqueeze(0).cuda()
+        dst_tensor = torch.from_numpy(dst).unsqueeze(0).cuda()
+        params = self.predictor(src_tensor, dst_tensor).detach().cpu().squeeze()
         tx, ty, rot, scale = params
         tx = self.transformer.tx_lambda(tx)
         ty = self.transformer.ty_lambda(ty)
         rot = self.transformer.rot_lambda(rot)
         scale = self.transformer.scale_lambda(scale)
-        new_in_tensor = cv2_to_tensor(new_in).unsqueeze(0)
-        new_ratio = new_in.size(2) / new_in.size(3)
-        old_ratio = ref0.size(2) / ref0.size(3)
-        if new_ratio < old_ratio:
-            tx = tx * new_ratio / old_ratio
-        else:
-            ty = ty / new_ratio * old_ratio
-        mat = torch.stack([
-            torch.stack([1.0 / scale * torch.cos(rot), 1.0 / scale * new_ratio * torch.sin(rot), tx], dim=0),
-            torch.stack([-1.0 / scale / new_ratio * torch.sin(rot), 1.0 / scale * torch.cos(rot), ty], dim=0)
-        ], dim=0).unsqueeze(0)
-        grid = nnf.affine_grid(mat, new_in_tensor.size(), align_corners=False)
-        transformed = nnf.grid_sample(new_in_tensor, grid, mode='bilinear').squeeze()
-        transformed = tensor_to_cv2(transformed)
-        affine_factor = {
-            'translation x': tx,
-            'translation y': ty,
-            'rotation degree': rot / np.pi * 180,
-            'scale factor': scale
-        }
-        return transformed, affine_factor
+        return tx, ty, rot, scale
 
 
 class GeometryAffineSolver(BaseAffineSolver):
     def __init__(self) -> None:
+        self.mse_func = torch.nn.MSELoss(reduction='none')
         return
     
     @staticmethod
@@ -132,56 +141,64 @@ class GeometryAffineSolver(BaseAffineSolver):
         y = (i.sum(0) * np.arange(i.shape[1])).sum() / i.sum()
         return x, y
     
-    def solve(self, src: np.ndarray, dst: np.ndarray, new_in: np.ndarray):
+    def solve(self, src: np.ndarray, dst: np.ndarray):
         h = src.shape[1]
         w = src.shape[2]
         ch0, cw0 = self.centroid(src.sum(0))
         ch1, cw1 = self.centroid(dst.sum(0))
-        s = (dst.sum() / src.sum()) ** 0.5
-        new_in_tensor = cv2_to_tensor(new_in).unsqueeze(0)
-        tw = torch.tensor((cw0 / w * 2 - 1) - (cw1 / w * 2 - 1) / s, dtype=torch.float32)
-        th = torch.tensor((ch0 / h * 2 - 1) - (ch1 / h * 2 - 1) / s, dtype=torch.float32)
-        rot_batch = [torch.tensor(i / 180 * math.pi) for i in range(-60, 60)]
+        # use tumor channel to compute scale, sometimes tumor is complete and kidney is not
+        scale = torch.tensor((dst[1].sum() / src[1].sum()) ** 0.5, dtype=torch.float32)
+        inv_scale = 1.0 / scale
+        transl_w = torch.tensor((cw0 / w * 2 - 1) - (cw1 / w * 2 - 1) / scale, dtype=torch.float32)
+        transl_h = torch.tensor((ch0 / h * 2 - 1) - (ch1 / h * 2 - 1) / scale, dtype=torch.float32)
+        rot_batch = [torch.tensor(i / 180 * math.pi) for i in range(360)]
         mat_batch = torch.stack([torch.stack([
-            torch.stack([1.0 / s * torch.cos(rot), 1.0 / s * (h / w) * torch.sin(rot), tw], dim=0),
-            torch.stack([-1.0 / s / (h / w) * torch.sin(rot), 1.0 / s * torch.cos(rot), th], dim=0)
-        ], dim=0) for rot in rot_batch], dim=0)
-        ref0_batch = torch.from_numpy(src).unsqueeze(0).repeat(len(rot_batch), 1, 1, 1)
-        grid_batch = nnf.affine_grid(mat_batch, ref0_batch.size(), align_corners=False)
-        trans0_batch = nnf.grid_sample(ref0_batch, grid_batch, mode='nearest')
-        errors = np.asarray([float(nnf.mse_loss(trans0, torch.from_numpy(dst))) for trans0 in trans0_batch])
+            torch.stack([inv_scale * torch.cos(rot), inv_scale * (h / w) * torch.sin(rot), transl_w], dim=0),
+            torch.stack([-inv_scale / (h / w) * torch.sin(rot), inv_scale * torch.cos(rot), transl_h], dim=0)
+        ], dim=0) for rot in rot_batch], dim=0).cuda()
+        src_tensor = torch.from_numpy(src).unsqueeze(0).repeat(len(rot_batch), 1, 1, 1).cuda()
+        dst_tensor = torch.from_numpy(dst).unsqueeze(0).repeat(len(rot_batch), 1, 1, 1).cuda()
+        grid_batch = nnf.affine_grid(mat_batch, src_tensor.size(), align_corners=False)
+        transformed_batch = nnf.grid_sample(src_tensor, grid_batch, mode='nearest', align_corners=False)
+        errors = self.mse_func(transformed_batch.flatten(1), dst_tensor.flatten(1)).mean(1)
         rot_index = errors.argmin()
         rot = rot_batch[rot_index]
-        new_ratio = new_in.shape[1] / new_in.shape[2]
-        if new_ratio < (h / w):
-            tw = tw * new_ratio / (h / w)
-        else:
-            th = th / new_ratio * (h / w)
-        mat = torch.stack([
-            torch.stack([1.0 / s * torch.cos(rot), 1.0 / s * new_ratio * torch.sin(rot), tw], dim=0),
-            torch.stack([-1.0 / s / new_ratio * torch.sin(rot), 1.0 / s * torch.cos(rot), th], dim=0)
+        return transl_h, transl_w, rot, scale
+    
+    
+class HybridAffineSolver(BaseAffineSolver):
+    def __init__(self, weight_path) -> None:
+        self.network = NetworkAffineSolver(weight_path)
+        self.geometry = GeometryAffineSolver()
+
+    def solve(self, src: np.ndarray, dst: np.ndarray):
+        geo_tx, geo_ty, geo_rot, geo_scale = self.geometry.solve(src, dst)
+        src_tensor = torch.from_numpy(src).unsqueeze(0).cuda()
+        inv_geo_scale = 1.0 / geo_scale
+        ratio = src.shape[1] / src.shape[2]
+        geo_mat = torch.stack([
+            torch.stack([inv_geo_scale * torch.cos(geo_rot), inv_geo_scale * ratio * torch.sin(geo_rot), geo_ty], dim=0),
+            torch.stack([-inv_geo_scale / ratio * torch.sin(geo_rot), inv_geo_scale * torch.cos(geo_rot), geo_tx], dim=0)
         ], dim=0).unsqueeze(0)
-        grid = nnf.affine_grid(mat, new_in_tensor.size(), align_corners=False)
-        transformed = nnf.grid_sample(new_in_tensor, grid, mode='bilinear').squeeze()
-        transformed = tensor_to_cv2(transformed)
-        affine_factor = {
-            'translation x': th,
-            'translation y': tw,
-            'rotation degree': rot / math.pi * 180,
-            'scale factor': s
-        }
-        return transformed, affine_factor
-    
-    
-class MontionAffineSolver(BaseAffineSolver):
-    def __init__(self) -> None:
-        self.image_list = []
-        self.tracker = TrackerKP()
+        geo_grid = nnf.affine_grid(geo_mat, src_tensor.size(), align_corners=False).cuda()
+        net_in_tensor = nnf.grid_sample(src_tensor, geo_grid, mode='nearest', align_corners=False)
+        net_in = net_in_tensor.squeeze().detach().cpu().numpy()
+        net_tx, net_ty, net_rot, net_scale = self.network.solve(net_in, dst)
         
-    def solve(self, src: np.ndarray, dst: np.ndarray, new_in: np.ndarray):
-        last_frame = self.image_list[-1]
+        # inv_net_scale = 1.0 / net_scale
+        # net_mat = torch.stack([
+        #     torch.stack([inv_net_scale * torch.cos(net_rot), inv_net_scale * ratio * torch.sin(net_rot), net_ty], dim=0),
+        #     torch.stack([-inv_net_scale / ratio * torch.sin(net_rot), inv_net_scale * torch.cos(net_rot), net_tx], dim=0)
+        # ], dim=0).unsqueeze(0)
+        # net_grid = nnf.affine_grid(net_mat, net_in_tensor.size(), align_corners=False).cuda()
+        # net_out_tensor = nnf.grid_sample(net_in_tensor, net_grid, mode='nearest', align_corners=False)
+        # net_out = net_out_tensor.squeeze().detach().cpu().numpy()
         
-        return
+        tx = geo_tx + net_tx
+        ty = geo_ty + net_ty
+        rot = geo_rot + net_rot
+        scale = geo_scale * net_scale
+        return tx, ty, rot, scale
 
     
 class Fuser:
@@ -189,7 +206,6 @@ class Fuser:
                  image_size=512):
         """
         Do the preoperative and intraoperative image fusion.
-        Use a frame window to control the stability.
         Args:
             probes (list of Probe):
             feature_extractor (torch.nn.Module):
@@ -223,9 +239,12 @@ class Fuser:
 
         # PPS
         self.restriction = PROBE_PRESETS[case_type]
+        
+        # for re-render
+        self.renderer = PRRenderer(probes[0].mesh_path, out_size=image_size)
 
     @time_it
-    def add_frame(self, frame, segment_2ch, prior_type='type1', ablation=None):
+    def add_frame(self, frame, segment_2ch, ablation=None):
         """
         Use the closest probe in the given range.
         Args:
@@ -241,27 +260,24 @@ class Fuser:
         similarity = self.feature_sim_func(seg_feature, self.feature_pool).numpy()
         if ablation is None or ablation != 'wo_pps':
             similarity = np.where(self.restriction['azimuth'](self.probe_azimuth) & self.restriction['elevation'](self.probe_elevation),
-                                  similarity,
-                                  -1)
+                                  similarity, -1)
         hit_index = similarity.argmax()
         # registration src
         hit_render_2ch = self.rendered_2ch_pool[hit_index]
         # re-render with additional information, registration new_in
-        re_rendered = self.probes[hit_index].re_render(out_size=self.image_size, draw_mesh=None)
+        re_rendered = self.probes[hit_index].re_render(renderer=self.renderer, draw_mesh=None)
         # new_out
-        transformed, affine_factor = self.affine_solver.solve(hit_render_2ch, segment_2ch, re_rendered)
+        transformed, affine_matrix = self.affine_solver.solve_and_affine(hit_render_2ch, segment_2ch, re_rendered)
         # fuse
-        fused = (images_alpha_lighten(frame, transformed / transformed.max(), 0.5) * 255).astype(np.uint8)
+        fused = (images_alpha_lighten(frame / 255, transformed / 255, 0.5) * 255).astype(np.uint8)
         # information
         frame_info = {
             'original': frame,
             'fusion': fused,
             'hit index': hit_index,
-            'hit azimuth': self.probe_azimuth[hit_index],
-            'hit elevation': self.probe_elevation[hit_index],
             'hit render': self.probes[hit_index].render,
             're-rendered': re_rendered,
-            'affine factor': affine_factor,
+            'affine matrix': affine_matrix,
             'transformed': transformed,
         }
         return frame_info
@@ -315,9 +331,10 @@ def test(fold=0, n_fold=6, ablation=None):
         # affine 2d solver
         affine2d_weight_dir = 'affine2d' if ablation is None else 'affine2d_' + ablation
         affine2d_path = '{}/fold{}/{}/best.pth'.format(paths.WEIGHTS_DIR, fold, affine2d_weight_dir)
-        affine_network = NetworkAffineSolver(weight_path=affine2d_path)
-        affine_geometry = GeometryAffineSolver()
-        
+        # affine_solver = HybridAffineSolver(weight_path=affine2d_path)
+        # affine_solver = NetworkAffineSolver(weight_path=affine2d_path)
+        affine_solver = GeometryAffineSolver()
+
         # case type
         if case_id not in CASE_INFO.keys():
             case_type = 'type1'
@@ -329,7 +346,7 @@ def test(fold=0, n_fold=6, ablation=None):
             probes=probes,
             case_type=case_type,
             feature_extractor=profen,
-            affine2d_solver=affine_geometry,
+            affine2d_solver=affine_solver,
             image_size=case_dataloader.image_size(),
         )
 
@@ -339,23 +356,28 @@ def test(fold=0, n_fold=6, ablation=None):
             orig_segment = case_dataloader.labels[i]
             if orig_segment is None:        # some frames do not have segmented labels
                 continue
-            segment = resized_center_square(orig_segment, out_size=512).transpose((2, 0, 1))
+            segment = crop_and_resize_square(orig_segment, out_size=512).transpose((2, 0, 1))
             segment = make_channels(segment, [
                 lambda x: x[2] != 0,
                 lambda x: x[1] != 0
             ])
-            frame_info = registrator.add_frame(photo, segment, prior_type=case_type)
+            frame_info = registrator.add_frame(photo, segment)
             cv2.imwrite('{}/{}'.format(fusion_dir, case_dataloader.fns[i]), frame_info['fusion'])
-            metrics = evaluate(
-                make_channels(frame_info['transformed'].transpose((2, 0, 1)), [
-                    lambda x: x.any(0) & (x[0] < x[1] + x[2]) & (x[2] < x[0] + x[1]),
-                    lambda x: (x[0] < 0.1) & (x[1] > 0.2) & (x[2] > 0.2)
-                ]),
-                make_channels(orig_segment.transpose((2, 0, 1)), [
-                    lambda x: x.any(0),
-                    lambda x: x[1] != 0
-                ])
-            )
+            try:
+                metrics = evaluate(
+                    make_channels(frame_info['transformed'].transpose((2, 0, 1)), [
+                        lambda x: x.any(0) & (x[0] < x[1] + x[2]) & (x[2] < x[0] + x[1]),
+                        lambda x: (x[0] < 0.1) & (x[1] > 0.2) & (x[2] > 0.2)
+                    ]),
+                    make_channels(orig_segment.transpose((2, 0, 1)), [
+                        lambda x: x.any(0),
+                        lambda x: x[1] != 0
+                    ])
+                )
+            except:
+                # mostly because of hausdorff distance compute with no pixel
+                print('Exception occurs when computing metrics of case {} frame {}.')
+                continue
             evaluations[case_dataloader.fns[i]] = metrics
             print('Case: {} Frame: {} is OK.'.format(case_id, case_dataloader.fns[i]))
         average_metrics = {
@@ -369,14 +391,17 @@ def test(fold=0, n_fold=6, ablation=None):
         evaluations['average'] = average_metrics
         with open('{}/{}/metrics.json'.format(result_dir, case_id), 'w') as f:
             json.dump(evaluations, f, indent=4)
+        # explicitly delete registrator, release renderer in time, avoid GL errors
+        del registrator
+        print('Case {} is OK.'.format(case_id))
 
     print('All OK')
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Fusion settings')
-    parser.add_argument('--gpu', type=int, default=3, required=False, help='do inference on which gpu')
-    parser.add_argument('--folds', type=list, default=[0], required=False, 
+    parser.add_argument('--gpu', type=int, default=2, required=False, help='do inference on which gpu')
+    parser.add_argument('--folds', type=list, default=[0, 1, 2, 3, 4, 5], required=False, 
                         help='which folds should be tested in fusion, e.g. --folds 0 2 4')
     parser.add_argument('--n_folds', type=int, default=6, required=False, 
                         help='how many folds in total')

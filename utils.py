@@ -13,12 +13,12 @@ def time_it(func):
         start = time.time()
         result = func(*args, **kwargs)
         end = time.time()
-        print('[TIMELOG] function \'{}\' cost time: {:.3f} s.'.format(func.__name__, end - start))
+        print('[TIMELOG] function \'{}\' cost time: {:.2f} ms.'.format(func.__name__, (end - start) * 1000))
         return result
     return wrapper
 
 
-def resized_center_square(img, out_size):
+def crop_and_resize_square(img, out_size):
     """
     Crop the biggest square of the photo, which centered at the center of original photo,
     then resize it to the given size.
@@ -26,7 +26,7 @@ def resized_center_square(img, out_size):
         img(np.ndarray): shape of (H, W, C)
         out_size(int):
     Returns:
-        np.ndarray: shape of (H, W, C)
+        np.ndarray: shape of (out_size, out_size, C)
     """
     h, w = img.shape[0], img.shape[1]
     if h < w:
@@ -34,6 +34,32 @@ def resized_center_square(img, out_size):
     else:
         img = img[(h - w) // 2: (h + w) // 2, ...]
     _out = cv2.resize(img, (out_size, out_size))
+    return _out
+
+
+def pad_and_resize_square(img, out_size):
+    """ Pad the original image to square than resize it to the out_size
+    The background is set to black by default
+    Args:
+        img (np.ndarray): shape of (H, W, C)
+        out_size (int):
+    Returns:
+        np.ndarray: shape of (out_size, out_size, C)
+    """
+    if len(img.shape) == 3:    
+        h, w, c = img.shape
+        _out = np.zeros((out_size, out_size, c))
+    elif len(img.shape) == 2:
+        h, w = img.shape
+        _out = np.zeros((out_size, out_size))
+    else:
+        raise 
+    if h < w:
+        newh = h * out_size // w 
+        _out[(out_size - newh) // 2: (out_size + newh) // 2, ...] = cv2.resize(img, (w, newh))
+    else:
+        neww = w * out_size // h
+        _out[:, (out_size - neww) // 2: (out_size + neww) // 2, ...] = cv2.reize(img, (neww, h))
     return _out
 
 

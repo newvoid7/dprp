@@ -80,9 +80,15 @@ class Probe:
     def get_render_width(self):
         return self.render.shape[1]
     
-    def re_render(self, out_size=512, draw_mesh=None, mode='BGR'):
+    def re_render(self, renderer, draw_mesh=None, mode='BGR'):
+        """
+        Args:
+            renderer: a class implements render method, avoid frequent destory
+        Returns:
+            np.ndarray: shape of (H, W, [RGB]), dtype=np.uint8
+        """
         # The renderer will be destroyed every time, might have some performance flaw
-        renderer = PRRenderer(self.mesh_path, out_size=out_size)
+        # renderer = PRRenderer(self.mesh_path, out_size=out_size)
         return renderer.render(mat=self.get_matrix(), draw_mesh=draw_mesh, mode=mode)
 
 

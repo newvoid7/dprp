@@ -2,7 +2,7 @@ from torch import nn
 import cv2
 import numpy as np
 
-from network.affine2d import Affine2dTransformer, Affine2dPredictor
+from network.transform import Affine2dTransformer, Affine2dPredictor
 
 
 class TrackerNet(nn.Module):

@@ -7,7 +7,7 @@ from torch.nn import MSELoss
 import matplotlib.pyplot as plt
 
 from network.profen import ProFEN
-from network.affine2d import Affine2dPredictor, Affine2dTransformer
+from network.transform import Affine2dPredictor, Affine2dTransformer
 from network.loss import RefInfoNCELoss, InfoNCELoss
 from dataloaders import ProbeSingleCaseDataloader
 from probe import deserialize_probes, Probe, ablation_num_of_probes
@@ -194,14 +194,14 @@ if __name__ == '__main__':
     os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
     if not args.ablation:
         for fold in args.folds:
-            ProfenTrainer(fold=fold, n_folds=args.n_folds).train()
+            # ProfenTrainer(fold=fold, n_folds=args.n_folds).train()
             Affine2DTrainer(fold=fold, n_folds=args.n_folds).train()
     else:
         for fold in args.folds:
-            ProfenTrainer(ablation='wo_ref_loss', fold=fold, n_folds=args.n_folds).train()
-            ProfenTrainer(ablation='div_4', fold=fold, n_folds=args.n_folds).train()
-            ProfenTrainer(ablation='div_9', fold=fold, n_folds=args.n_folds).train()
-            ProfenTrainer(ablation='div_16', fold=fold, n_folds=args.n_folds).train()
+            # ProfenTrainer(ablation='wo_ref_loss', fold=fold, n_folds=args.n_folds).train()
+            # ProfenTrainer(ablation='div_4', fold=fold, n_folds=args.n_folds).train()
+            # ProfenTrainer(ablation='div_9', fold=fold, n_folds=args.n_folds).train()
+            # ProfenTrainer(ablation='div_16', fold=fold, n_folds=args.n_folds).train()
             Affine2DTrainer(ablation='div_4', fold=fold, n_folds=args.n_folds).train()
             Affine2DTrainer(ablation='div_9', fold=fold, n_folds=args.n_folds).train()
             Affine2DTrainer(ablation='div_16', fold=fold, n_folds=args.n_folds).train()

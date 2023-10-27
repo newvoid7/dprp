@@ -1,4 +1,5 @@
 import os
+import json
 
 from batchgenerators.dataloading.data_loader import SlimDataLoaderBase
 import numpy as np
@@ -75,15 +76,20 @@ class ProbeSingleCaseDataloader(SlimDataLoaderBase):
     
 class TestSingleCaseDataloader:
     def __init__(self, case_dir):
-        image_fns = [fn for fn in os.listdir(case_dir) if fn.endswith('.png')]
+        image_fns = [fn for fn in os.listdir(case_dir) if fn.endswith('.png') or fn.endswith('.jpg')]
         image_fns.sort(key=lambda x: int(x[:-4]))
         label_dir = os.path.join(case_dir, 'label')
-        label_fns = [fn for fn in os.listdir(label_dir) if fn.endswith('.png')]
-        label_fns.sort(key=lambda x: int(x[:-4]))
+        label_fns = [fn for fn in os.listdir(label_dir) if fn.endswith('.png') or fn.endswith('.jpg')]
         self.images = [cv2.imread(os.path.join(case_dir, fn)) for fn in image_fns]
         # in some cases, not all images have corresponding labels
         # but still keep length of 2 lists the same
         self.labels = [cv2.imread(os.path.join(label_dir, fn)) if fn in label_fns else None for fn in image_fns]
+        prior_info_path = os.path.join(case_dir, paths.PRIOR_INFO_FILENAME)
+        if os.path.exists(prior_info_path):
+            with open(prior_info_path) as f:
+                self.prior_info = json.load(f)
+        else:
+            self.prior_info = None
         self.fns = image_fns
         
     def image_size(self):

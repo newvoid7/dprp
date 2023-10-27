@@ -6,7 +6,7 @@ from torchvision import transforms
 import torch.nn.functional as nnf
 import torch
 
-from utils import resized_center_square, cv2_to_tensor
+from utils import crop_and_resize_square, cv2_to_tensor
 
 class AgentTask:
     """ Simulate the noisy context in intraoperative images. Should only apply on segmented images.
@@ -15,7 +15,7 @@ class AgentTask:
         occlusion_paths = [os.path.join(occlusion_dir, fn) for fn in os.listdir(occlusion_dir)
                            if fn.endswith('.png') or fn.endswith('.jpg')]
         self.occlusions = [cv2.imread(p, cv2.IMREAD_GRAYSCALE) for p in occlusion_paths]
-        self.occlusions = [resized_center_square(o, out_size=512) for o in self.occlusions]
+        self.occlusions = [crop_and_resize_square(o, out_size=512) for o in self.occlusions]
         self.occlusions = [cv2_to_tensor(o) for o in self.occlusions]
 
     def apply(self, i):
@@ -30,7 +30,8 @@ class AgentTask:
         """
         transform = transforms.Compose([
             transforms.RandomRotation(degrees=40, interpolation=transforms.InterpolationMode.NEAREST),
-            transforms.RandomResizedCrop(size=512, scale=(0.5, 1.1), ratio=(1.0, 1.0),
+            # for RandomResizedCrop, the scale is based on area
+            transforms.RandomResizedCrop(size=512, scale=(0.2, 1.1), ratio=(1.0, 1.0),
                                          interpolation=transforms.InterpolationMode.NEAREST)
         ])
         i = transform(i)

@@ -9,4 +9,5 @@ ALL_CASES = [d for d in os.listdir(DATASET_DIR)
 MASK_DIR = os.path.join(DATASET_DIR, '.mask')
 VOLUME_FILENAME = 'orig.nii.gz'
 MESH_FILENAME = 'mesh.gltf'
+PRIOR_INFO_FILENAME = 'prior.json'
 PROBE_FILENAME = 'probes.npz'

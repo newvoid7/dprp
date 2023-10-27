@@ -31,6 +31,7 @@ class Affine2dPredictor(nn.Module):
 
 class Affine2dTransformer(nn.Module):
     """
+    Transform a square image.
     It's best to make the 4 ranges centered at (0, 0, 0, 1),
     which means when the input is [0.5, 0.5, 0.5, 0.5], it doesn't change the image at all.
     Important: these ranges should cover the transforms in agent task (see train.py).
@@ -69,11 +70,18 @@ class Affine2dTransformer(nn.Module):
         ty = self.ty_lambda(ty)
         rot = self.rot_lambda(rot)
         scale = self.scale_lambda(scale)
-        h = src.size(2)
-        w = src.size(3)
+        inv_s = 1.0 / scale
+        cos_a = torch.cos(rot)
+        sin_a = torch.sin(rot)
+        '''
+        The inverse of 
+            [[s * cos a, -s * sin a, tx],
+            [s * sin a, s * cos a, ty],
+            [0, 0, 1]].
+        '''
         mtx = torch.stack([
-            torch.stack([1.0 / scale * torch.cos(rot), 1.0 / scale * (h / w) * torch.sin(rot), tx], dim=1),
-            torch.stack([-1.0 / scale / (h / w) * torch.sin(rot), 1.0 / scale * torch.cos(rot), ty], dim=1)
+            torch.stack([inv_s * cos_a, inv_s * sin_a, -inv_s * (tx * cos_a + ty * sin_a)], dim=1),
+            torch.stack([-inv_s * sin_a, inv_s * cos_a, inv_s * (tx * sin_a - ty * cos_a)], dim=1)
         ], dim=1)
         grid = nnf.affine_grid(mtx, src.size(), align_corners=False)
         _out = nnf.grid_sample(src, grid, mode='bilinear', align_corners=False)

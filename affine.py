@@ -1,0 +1,180 @@
+import math
+
+import torch
+import torch.nn.functional as nnf
+import numpy as np
+
+from utils import cv2_to_tensor, tensor_to_cv2, time_it
+from network.transform import Affine2dPredictor, Affine2dTransformer
+
+
+class BaseAffineSolver:
+    def __init__(self) -> None:
+        return
+    
+    def solve(self, src: np.ndarray, dst: np.ndarray):
+        """
+        Compute the affine factor from src to dst, assuming they are square.
+        Args:
+            src (np.ndarray): (C=2, H, W), values are 0 or 1
+            dst (np.ndarray): (C=2, H, W), values are 0 or 1
+        Returns:
+            (float, float, float, float): tx, ty, rot, scale
+        """
+        pass
+    
+    @time_it
+    def solve_and_affine(self, src: np.ndarray, dst: np.ndarray, new_in: np.ndarray):
+        """
+        Solve the affine transform factors from src to dst (assume they are square images), and apply it on new_in.
+        Consider new_in as a non-square image.
+        To keep same with torch, not using transformation in cv2.
+        Args:
+            src (np.ndarray): (C=2, H, W), values are 0 or 1
+            dst (np.ndarray): (C=2, H, W), values are 0 or 1
+            new_in (np.ndarray): from cv2, (H', W', C'(BGR))
+        Returns:
+            np.ndarray: (H', W', C'(BGR))
+        """
+        tx, ty, rot, scale = self.solve(src, dst)
+        inv_s = 1.0 / scale
+        cos_a = math.cos(rot)
+        sin_a = math.sin(rot)
+        r = new_in.shape[0] / new_in.shape[1]
+        l_w = min(new_in.shape[0], new_in.shape[1]) / new_in.shape[1]
+        l_h = min(new_in.shape[0], new_in.shape[1]) / new_in.shape[0]
+        '''
+        Like Affine2dTransformer in transform.py, but consider the new_in is a padded result of src.
+        The normalized coordinates is based on the smaller value of height and width (defined as l).
+        Therefore, firstly mapping the normalized coordinate to real-world coordinate (pixels), which is 
+            (x, y) -> (wx, hy)
+        Then mapping the translation factor to pixel too, which is 
+            (tx, ty) -> (l * tx, l * ty)
+        Then apply the original inverse matrix (in Affine2dTransformer).
+        Lastly, map the transformed coordinate back to normalized coordinate.
+        In short, the matrix M' should statisfy:
+            M' * (x, y) = (M[0], l*tx; M[1], l*ty) * (wx, hy) / (w, h)
+        '''
+        mat = torch.tensor([[
+            [inv_s * cos_a, inv_s * sin_a * r, -inv_s * (tx * cos_a + ty * sin_a) * l_w],
+            [-inv_s * sin_a / r, inv_s * cos_a, inv_s * (tx * sin_a - ty * cos_a) * l_h]
+        ]], dtype=torch.float32).cuda()
+        new_in_tensor = cv2_to_tensor(new_in).unsqueeze(0).cuda()
+        grid = nnf.affine_grid(mat, new_in_tensor.size(), align_corners=False).cuda()
+        transformed = nnf.grid_sample(new_in_tensor, grid, mode='bilinear', align_corners=False).squeeze()
+        transformed = tensor_to_cv2(transformed)
+        return transformed, mat
+
+
+class NetworkAffineSolver(BaseAffineSolver):
+    def __init__(self, weight_path) -> None:
+        self.predictor = Affine2dPredictor().cuda()
+        self.transformer = Affine2dTransformer().cuda()
+        self.predictor.eval()
+        self.transformer.eval()
+        return
+    
+    def solve(self, src: np.ndarray, dst: np.ndarray):
+        src_tensor = torch.from_numpy(src).unsqueeze(0).cuda()
+        dst_tensor = torch.from_numpy(dst).unsqueeze(0).cuda()
+        with torch.no_grad():
+            params = self.predictor(src_tensor, dst_tensor).detach().cpu().squeeze()
+        tx, ty, rot, scale = params
+        tx = self.transformer.tx_lambda(tx)
+        ty = self.transformer.ty_lambda(ty)
+        rot = self.transformer.rot_lambda(rot)
+        scale = self.transformer.scale_lambda(scale)
+        return tx, ty, rot, scale
+
+
+class GeometryAffineSolver(BaseAffineSolver):
+    def __init__(self) -> None:
+        self.mse_func = torch.nn.MSELoss(reduction='none')
+        return
+    
+    @staticmethod
+    def centroid(i, normal=True):
+        '''
+        Args: 
+            i: shape of (H, W), (0, 1) value
+            normal: if True, normalize to [-1, 1]^2 space
+        '''
+        if isinstance(i, np.ndarray):
+            height = i.shape[0]
+            width = i.shape[1]            
+            centerh = (i.sum(1) * np.arange(height)).sum() / i.sum()
+            centerw = (i.sum(0) * np.arange(width)).sum() / i.sum()
+        elif isinstance(i, torch.Tensor):
+            height = i.size(0)
+            width = i.size(1)
+            centerh = (i.sum(1) * torch.arange(height)).sum() / i.sum()
+            centerw = (i.sum(0) * torch.arange(width)).sum() / i.sum()
+        else:
+            raise RuntimeError('The input of function `centroid` must be np.ndarray or torch.Tensor')
+        if normal:
+            centerh = centerh / height * 2 - 1
+            centerw = centerw / width * 2 - 1
+        return centerh, centerw
+    
+    def solve(self, src: np.ndarray, dst: np.ndarray):
+        center0_h, center0_w = self.centroid(src.sum(0))
+        center1_h, center1_w = self.centroid(dst.sum(0))
+        tx = center1_w - center0_w
+        ty = center1_h - center0_h
+        # use tumor channel to compute scale, sometimes tumor is complete and kidney is not
+        scale = max(dst[1].sum() / src[1].sum(), dst[0].sum() / src[0].sum()) ** 0.5
+        inv_s = 1.0 / scale
+        rot_batch = torch.arange(0, 360, 1, dtype=torch.float32, device='cuda') / 180 * torch.pi
+        sin_a = torch.sin(rot_batch)
+        cos_a = torch.cos(rot_batch)
+        mat00_batch = inv_s * cos_a
+        mat01_batch = inv_s * sin_a
+        mat02_batch = -inv_s * (tx * cos_a + ty * sin_a)
+        mat12_batch = inv_s * (tx * sin_a - ty * cos_a)
+        mat0_batch = torch.stack((mat00_batch, mat01_batch, mat02_batch), dim=1)
+        mat1_batch = torch.stack((-mat01_batch, mat00_batch, mat12_batch), dim=1)
+        # see Affine2dTransformer in affine2d.py
+        mat_batch = torch.stack((mat0_batch, mat1_batch), dim=1)
+        src_tensor = torch.from_numpy(src).unsqueeze(0).repeat(len(rot_batch), 1, 1, 1).cuda()
+        dst_tensor = torch.from_numpy(dst).unsqueeze(0).repeat(len(rot_batch), 1, 1, 1).cuda()
+        grid_batch = nnf.affine_grid(mat_batch, src_tensor.size(), align_corners=False)
+        transformed_batch = nnf.grid_sample(src_tensor, grid_batch, mode='nearest', align_corners=False)
+        errors = self.mse_func(transformed_batch.flatten(1), dst_tensor.flatten(1)).mean(1)
+        rot_index = errors.argmin()
+        rot = rot_batch[rot_index].detach().cpu().float()
+        return tx, ty, rot, scale
+    
+    
+class HybridAffineSolver(BaseAffineSolver):
+    def __init__(self, weight_path) -> None:
+        self.network = NetworkAffineSolver(weight_path)
+        self.geometry = GeometryAffineSolver()
+
+    def solve(self, src: np.ndarray, dst: np.ndarray):
+        geo_tx, geo_ty, geo_rot, geo_scale = self.geometry.solve(src, dst)
+        src_tensor = torch.from_numpy(src).unsqueeze(0).cuda()
+        inv_geo_scale = 1.0 / geo_scale
+        ratio = src.shape[1] / src.shape[2]
+        geo_mat = torch.stack([
+            torch.stack([inv_geo_scale * torch.cos(geo_rot), inv_geo_scale * ratio * torch.sin(geo_rot), geo_ty], dim=0),
+            torch.stack([-inv_geo_scale / ratio * torch.sin(geo_rot), inv_geo_scale * torch.cos(geo_rot), geo_tx], dim=0)
+        ], dim=0).unsqueeze(0)
+        geo_grid = nnf.affine_grid(geo_mat, src_tensor.size(), align_corners=False).cuda()
+        net_in_tensor = nnf.grid_sample(src_tensor, geo_grid, mode='nearest', align_corners=False)
+        net_in = net_in_tensor.squeeze().detach().cpu().numpy()
+        net_tx, net_ty, net_rot, net_scale = self.network.solve(net_in, dst)
+        
+        # inv_net_scale = 1.0 / net_scale
+        # net_mat = torch.stack([
+        #     torch.stack([inv_net_scale * torch.cos(net_rot), inv_net_scale * ratio * torch.sin(net_rot), net_ty], dim=0),
+        #     torch.stack([-inv_net_scale / ratio * torch.sin(net_rot), inv_net_scale * torch.cos(net_rot), net_tx], dim=0)
+        # ], dim=0).unsqueeze(0)
+        # net_grid = nnf.affine_grid(net_mat, net_in_tensor.size(), align_corners=False).cuda()
+        # net_out_tensor = nnf.grid_sample(net_in_tensor, net_grid, mode='nearest', align_corners=False)
+        # net_out = net_out_tensor.squeeze().detach().cpu().numpy()
+        
+        tx = geo_tx + net_tx
+        ty = geo_ty + net_ty
+        rot = geo_rot + net_rot
+        scale = geo_scale * net_scale
+        return tx, ty, rot, scale

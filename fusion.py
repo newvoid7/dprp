@@ -256,14 +256,13 @@ def test(fold=0, n_fold=6, ablation=None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Fusion settings')
     parser.add_argument('--gpu', type=int, default=3, required=False, help='do inference on which gpu')
-    parser.add_argument('--folds', type=list, default=[0, 1, 2, 3, 4, 5], required=False, 
-                        help='which folds should be tested in fusion, e.g. --folds 0 2 4')
+    parser.add_argument('--folds', type=int, nargs='+', default=[0, 1, 2, 3, 4, 5], required=False, 
+                        help='which folds should be trained, e.g. --folds 0 2 4')
     parser.add_argument('--n_folds', type=int, default=6, required=False, 
                         help='how many folds in total')
     parser.add_argument('--ablation', type=bool, default=False, required=False, 
                         help='whether do the ablation')
     args = parser.parse_args()
-    args.folds = [int(f) for f in args.folds]
     
     os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
     os.environ['PYOPENGL_PLATFORM'] = 'egl'

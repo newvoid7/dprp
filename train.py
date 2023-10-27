@@ -182,26 +182,25 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Training parameters')
     parser.add_argument('--gpu', type=int, default=0, required=False, 
                         help='train on which gpu')
-    parser.add_argument('--folds', type=list, default=[0, 1, 2, 3, 4, 5], required=False, 
+    parser.add_argument('--folds', type=int, nargs='+', default=[0, 1, 2, 3, 4, 5], required=False, 
                         help='which folds should be trained, e.g. --folds 0 2 4')
     parser.add_argument('--n_folds', type=int, default=6, required=False, 
                         help='how many folds in total')
-    parser.add_argument('--ablation', type=bool, default=False, required=False, 
+    parser.add_argument('--ablation', action='store_true', default=False, required=False, 
                         help='whether do the ablation')
     args = parser.parse_args()
-    args.folds = [int(f) for f in args.folds]
     
     os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
     if not args.ablation:
         for fold in args.folds:
-            # ProfenTrainer(fold=fold, n_folds=args.n_folds).train()
+            ProfenTrainer(fold=fold, n_folds=args.n_folds).train()
             Affine2DTrainer(fold=fold, n_folds=args.n_folds).train()
     else:
         for fold in args.folds:
-            # ProfenTrainer(ablation='wo_ref_loss', fold=fold, n_folds=args.n_folds).train()
-            # ProfenTrainer(ablation='div_4', fold=fold, n_folds=args.n_folds).train()
-            # ProfenTrainer(ablation='div_9', fold=fold, n_folds=args.n_folds).train()
-            # ProfenTrainer(ablation='div_16', fold=fold, n_folds=args.n_folds).train()
+            ProfenTrainer(ablation='wo_ref_loss', fold=fold, n_folds=args.n_folds).train()
+            ProfenTrainer(ablation='div_4', fold=fold, n_folds=args.n_folds).train()
+            ProfenTrainer(ablation='div_9', fold=fold, n_folds=args.n_folds).train()
+            ProfenTrainer(ablation='div_16', fold=fold, n_folds=args.n_folds).train()
             Affine2DTrainer(ablation='div_4', fold=fold, n_folds=args.n_folds).train()
             Affine2DTrainer(ablation='div_9', fold=fold, n_folds=args.n_folds).train()
             Affine2DTrainer(ablation='div_16', fold=fold, n_folds=args.n_folds).train()

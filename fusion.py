@@ -10,9 +10,9 @@ import SimpleITK as sitk
 
 import paths
 from network.profen import ProFEN
-from utils import crop_and_resize_square, make_channels, time_it, images_alpha_lighten
+from utils import crop_and_resize_square, make_channels, time_it, images_alpha_lighten, cv2_to_tensor, tensor_to_cv2
 from affine import BaseAffineSolver, GeometryAffineSolver, NetworkAffineSolver, HybridAffineSolver
-from probe import Probe, deserialize_probes, ablation_num_of_probes
+from probe import ProbeGroup
 from dataloaders import set_fold, TestSingleCaseDataloader
 import paths
 from render import PRRenderer
@@ -52,7 +52,7 @@ restrictions = {
 class Fuser:
     def __init__(self, 
                  case_type, 
-                 probes, 
+                 probe_group, 
                  feature_extractor: torch.nn.Module = None, 
                  affine2d_solver: BaseAffineSolver = None,
                  image_size=512):
@@ -69,7 +69,7 @@ class Fuser:
         self.affine_solver = affine2d_solver
         self.feature_sim_func = CosineSimilarity()
 
-        self.probes = probes
+        probes = probe_group.probes
         # (Np,)
         self.probe_azimuth = np.asarray([p.get_spcoord_dict()['azimuth'] for p in probes])
         # (Np,)
@@ -92,12 +92,15 @@ class Fuser:
 
         # PPS
         self.restriction = restrictions[case_type]
+        self.pps_filtered = self.restriction['azimuth'](self.probe_azimuth) & self.restriction['elevation'](self.probe_elevation)
+        self.pps_filtered = torch.from_numpy(self.pps_filtered).cuda()
         
         # for re-render
-        self.renderer = PRRenderer(probes[0].mesh_path, out_size=image_size)
+        self.renderer = PRRenderer(probe_group.mesh_path, out_size=image_size)
+        self.extra_rendered = [self.renderer.render(mat=p.get_matrix()) for p in probes]
 
     @time_it
-    def add_frame(self, frame, segment_2ch, ablation=None):
+    def process_frame(self, frame, segment_2ch, ablation=None):
         """
         Use the closest probe in the given range.
         Args:
@@ -109,32 +112,30 @@ class Fuser:
                 'render' (np.ndarray): shape of (H, W, 3)
         """
         # find the best matching probe
-        seg_feature = self.feature_extractor(torch.from_numpy(segment_2ch).unsqueeze(0).cuda())
-        similarity = self.feature_sim_func(seg_feature, self.feature_pool).detach().cpu().numpy()
+        seg_feature = self.feature_extractor(torch.from_numpy(segment_2ch).cuda().unsqueeze(0))
+        similarity = self.feature_sim_func(seg_feature, self.feature_pool)
         if ablation is None or ablation != 'wo_pps':
-            similarity = np.where(self.restriction['azimuth'](self.probe_azimuth) & self.restriction['elevation'](self.probe_elevation),
-                                  similarity, -1)
+            # similarity - min() to keep minimum = 0, then set elements out of restriction to 0 too
+            similarity = self.pps_filtered * (similarity - similarity.min())
         hit_index = similarity.argmax()
         # registration src
         hit_render_2ch = self.rendered_2ch_pool[hit_index]
         # re-render with additional information, registration new_in
-        re_rendered = self.probes[hit_index].re_render(renderer=self.renderer, draw_mesh=None)
+        re_rendered = self.extra_rendered[hit_index]
         # new_out
         transformed, affine_matrix = self.affine_solver.solve_and_affine(hit_render_2ch, segment_2ch, re_rendered)
         # fuse
-        fused = images_alpha_lighten(frame / 255, transformed / 255, 0.5) * 255
-        fused = fused.astype(np.uint8)
+        fused = images_alpha_lighten(cv2_to_tensor(frame).cuda(), transformed, 0.5)
+        fused = tensor_to_cv2(fused)
         # information
         frame_info = {
             'original': frame,
             'fusion': fused,
             'hit index': hit_index,
-            'hit render': self.probes[hit_index].render,
             're-rendered': re_rendered,
             'affine matrix': affine_matrix,
             'transformed': transformed,
         }
-        timestamps.append(time.time())
         return frame_info
 
 
@@ -172,9 +173,9 @@ def test(fold=0, n_fold=6, ablation=None):
         
         # probes
         probe_path = os.path.join(paths.RESULTS_DIR, case_id, paths.PROBE_FILENAME)
-        probes = deserialize_probes(probe_path)
+        probe_group = ProbeGroup(deserialize_path=probe_path)
         if ablation is not None and ablation.startswith('div_'):
-            probes = ablation_num_of_probes(probes, factor=int(ablation[4:]) ** 0.5)
+            probe_group.sparse(factor=int(ablation[4:]) ** 0.5)
         
         # feature extractor
         profen_weight_dir = 'profen' if ablation is None else 'profen_' + ablation
@@ -186,9 +187,9 @@ def test(fold=0, n_fold=6, ablation=None):
         # affine 2d solver
         affine2d_weight_dir = 'affine2d' if ablation is None else 'affine2d_' + ablation
         affine2d_path = '{}/fold{}/{}/best.pth'.format(paths.WEIGHTS_DIR, fold, affine2d_weight_dir)
-        # affine_solver = HybridAffineSolver(weight_path=affine2d_path)
+        affine_solver = HybridAffineSolver(weight_path=affine2d_path)
         # affine_solver = NetworkAffineSolver(weight_path=affine2d_path)
-        affine_solver = GeometryAffineSolver()
+        # affine_solver = GeometryAffineSolver()
 
         # case type
         if case_dataloader.prior_info is None:
@@ -197,8 +198,8 @@ def test(fold=0, n_fold=6, ablation=None):
             case_type = case_dataloader.prior_info['type']
         
         # fuse
-        registrator = Fuser(
-            probes=probes,
+        fuser = Fuser(
+            probe_group=probe_group,
             case_type=case_type,
             feature_extractor=profen,
             affine2d_solver=affine_solver,
@@ -216,7 +217,7 @@ def test(fold=0, n_fold=6, ablation=None):
                 lambda x: x[2] != 0,
                 lambda x: x[1] != 0
             ])
-            frame_info = registrator.add_frame(photo, segment)
+            frame_info = fuser.process_frame(photo, segment)
             cv2.imwrite('{}/{}'.format(fusion_dir, case_dataloader.fns[i]), frame_info['fusion'])
             try:
                 metrics = evaluate(
@@ -247,7 +248,7 @@ def test(fold=0, n_fold=6, ablation=None):
         with open('{}/{}/metrics.json'.format(result_dir, case_id), 'w') as f:
             json.dump(evaluations, f, indent=4)
         # explicitly delete registrator, release renderer in time, avoid GL errors
-        del registrator
+        del fuser
         print('Case {} is OK.'.format(case_id))
 
     print('Fold {} all OK'.format(fold))
@@ -260,7 +261,7 @@ if __name__ == '__main__':
                         help='which folds should be trained, e.g. --folds 0 2 4')
     parser.add_argument('--n_folds', type=int, default=6, required=False, 
                         help='how many folds in total')
-    parser.add_argument('--ablation', type=bool, default=False, required=False, 
+    parser.add_argument('--ablation', action='store_true', default=False, required=False, 
                         help='whether do the ablation')
     args = parser.parse_args()
     

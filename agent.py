@@ -2,11 +2,12 @@ import os
 import random
 
 import cv2
-from torchvision import transforms
+# from torchvision import transforms
 import torch.nn.functional as nnf
 import torch
 
 from utils import crop_and_resize_square, cv2_to_tensor
+from network.transform import Affine2dTransformer
 
 class AgentTask:
     """ Simulate the noisy context in intraoperative images. Should only apply on segmented images.
@@ -17,6 +18,8 @@ class AgentTask:
         self.occlusions = [cv2.imread(p, cv2.IMREAD_GRAYSCALE) for p in occlusion_paths]
         self.occlusions = [crop_and_resize_square(o, out_size=512) for o in self.occlusions]
         self.occlusions = [cv2_to_tensor(o) for o in self.occlusions]
+        self.transformer = Affine2dTransformer()
+        self.real_params = None
 
     def apply(self, i):
         """
@@ -28,13 +31,16 @@ class AgentTask:
         Returns:
             torch.Tensor: shape of (B, C, H, W)
         """
-        transform = transforms.Compose([
-            transforms.RandomRotation(degrees=40, interpolation=transforms.InterpolationMode.NEAREST),
-            # for RandomResizedCrop, the scale is based on area
-            transforms.RandomResizedCrop(size=512, scale=(0.2, 1.1), ratio=(1.0, 1.0),
-                                         interpolation=transforms.InterpolationMode.NEAREST)
-        ])
-        i = transform(i)
+        # deprecated
+        # transform = transforms.Compose([
+        #     transforms.RandomRotation(degrees=40, interpolation=transforms.InterpolationMode.NEAREST),
+        #     # for RandomResizedCrop, the scale is based on area
+        #     transforms.RandomResizedCrop(size=512, scale=(0.2, 1.1), ratio=(1.0, 1.0),
+        #                                  interpolation=transforms.InterpolationMode.NEAREST)
+        # ])
+        params = torch.rand((i.size(0), 4)).to(i.device)
+        self.real_params = params
+        i = self.transformer(i, params)
         hw = i.size()[-2:]
         mask = torch.ones(hw)
         for occ in self.occlusions:
@@ -48,12 +54,14 @@ if __name__ == '__main__':
     # for test
     import paths
     from utils import cv2_to_tensor, tensor_to_cv2
-    from probe import deserialize_probes
+    from probe import ProbeGroup
     agent_task = AgentTask(paths.MASK_DIR)
-    probes = deserialize_probes(os.path.join(paths.RESULTS_DIR, paths.ALL_CASES[0], paths.PROBE_FILENAME))
-    in_ = probes[10].render
+    pg = ProbeGroup(deserialize_path=os.path.join(paths.RESULTS_DIR, paths.ALL_CASES[0], paths.PROBE_FILENAME))
+    in_ = pg.probes[10].render
+    cv2.imwrite('before.png', in_)
     in_ = cv2_to_tensor(in_).unsqueeze(0)
     out_ = agent_task.apply(in_)
+    params = agent_task.real_params
     out_ = tensor_to_cv2(out_.squeeze())
-    cv2.imwrite('log.png', out_)
+    cv2.imwrite('after.png', out_)
     

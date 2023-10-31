@@ -10,7 +10,7 @@ from network.profen import ProFEN
 from network.transform import Affine2dPredictor, Affine2dTransformer
 from network.loss import RefInfoNCELoss, InfoNCELoss
 from dataloaders import ProbeSingleCaseDataloader
-from probe import deserialize_probes, Probe, ablation_num_of_probes
+from probe import ProbeGroup
 from utils import time_it
 from agent import AgentTask
 import paths
@@ -109,14 +109,18 @@ class ProfenTrainer(BaseTrainer):
         self.with_agent = ablation != 'wo_agent'
         self.loss_func = RefInfoNCELoss().cuda() if self.with_ref_loss else InfoNCELoss().cuda()
         train_cases, _ = set_fold(fold, n_folds)
-        probes = [deserialize_probes(os.path.join(paths.RESULTS_DIR, case_id, paths.PROBE_FILENAME))
+        probe_groups = [ProbeGroup(deserialize_path=os.path.join(paths.RESULTS_DIR, case_id, paths.PROBE_FILENAME))
             for case_id in train_cases]
         if ablation == 'div_4':
-            probes = [ablation_num_of_probes(p_list, 2) for p_list in probes]
+            for pg in probe_groups:
+                pg.sparse(2)
         elif ablation == 'div_9':
-            probes = [ablation_num_of_probes(p_list, 3) for p_list in probes]
+            for pg in probe_groups:
+                pg.sparse(3)
         elif ablation == 'div_16':
-            probes = [ablation_num_of_probes(p_list, 4) for p_list in probes]
+            for pg in probe_groups:
+                pg.sparse(4)
+        probes = [pg.probes for pg in probe_groups]
         self.dataloader = ProbeSingleCaseDataloader(probes=probes, batch_size=batch_size)
         self.batch_size = batch_size
         n_iter = self.dataloader.num_total // batch_size
@@ -148,14 +152,18 @@ class Affine2DTrainer(BaseTrainer):
         self.transformer = Affine2dTransformer().cuda()
         self.loss_func = MSELoss()
         train_cases, _ = set_fold(fold, n_folds)
-        probes = [deserialize_probes(os.path.join(paths.RESULTS_DIR, case_id, paths.PROBE_FILENAME))
+        probe_groups = [ProbeGroup(deserialize_path=os.path.join(paths.RESULTS_DIR, case_id, paths.PROBE_FILENAME))
             for case_id in train_cases]
         if ablation == 'div_4':
-            probes = [ablation_num_of_probes(p_list, 2) for p_list in probes]
+            for pg in probe_groups:
+                pg.sparse(2)
         elif ablation == 'div_9':
-            probes = [ablation_num_of_probes(p_list, 3) for p_list in probes]
+            for pg in probe_groups:
+                pg.sparse(3)
         elif ablation == 'div_16':
-            probes = [ablation_num_of_probes(p_list, 4) for p_list in probes]
+            for pg in probe_groups:
+                pg.sparse(4)
+        probes = [pg.probes for pg in probe_groups]
         self.dataloader = ProbeSingleCaseDataloader(probes=probes, batch_size=batch_size)
         self.batch_size = batch_size
         n_iter = self.dataloader.num_total // batch_size
@@ -168,11 +176,14 @@ class Affine2DTrainer(BaseTrainer):
         batch = next(self.dataloader)
         render = torch.from_numpy(batch['data']).float().cuda()
         target = self.agent.apply(render)
+        params = self.agent.real_params
         pred_params = self.model(render, target)
         pred_target = self.transformer(render, pred_params)
         # TODO: should compute the loss without mask
         # TODO: treat the channels differently
-        loss = self.loss_func(target, pred_target)
+        loss_cycle = self.loss_func(target, pred_target)
+        loss_param = self.loss_func(params, pred_params)
+        loss = 0.5 * loss_cycle + 0.5 * loss_param
         loss.backward()
         self.optimizer.step()
         return float(loss)

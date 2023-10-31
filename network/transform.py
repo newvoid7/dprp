@@ -34,7 +34,7 @@ class Affine2dTransformer(nn.Module):
     Transform a square image.
     It's best to make the 4 ranges centered at (0, 0, 0, 1),
     which means when the input is [0.5, 0.5, 0.5, 0.5], it doesn't change the image at all.
-    Important: these ranges should cover the transforms in agent task (see train.py).
+    Important: these ranges should cover the transforms in agent task (see `agent.py`).
     Attributes:
         tx_range (tuple): a range of translation x, relative to the width of image ([-1, 1] for the largest range).
         ty_range (tuple): a range of translation y, relative to the height of image.

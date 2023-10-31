@@ -24,7 +24,7 @@ class BaseAffineSolver:
         pass
     
     @time_it
-    def solve_and_affine(self, src: np.ndarray, dst: np.ndarray, new_in: np.ndarray):
+    def solve_and_affine(self, src: np.ndarray, dst: np.ndarray, new_in: np.ndarray, return_tensor=True):
         """
         Solve the affine transform factors from src to dst (assume they are square images), and apply it on new_in.
         Consider new_in as a non-square image.
@@ -62,7 +62,8 @@ class BaseAffineSolver:
         new_in_tensor = cv2_to_tensor(new_in).unsqueeze(0).cuda()
         grid = nnf.affine_grid(mat, new_in_tensor.size(), align_corners=False).cuda()
         transformed = nnf.grid_sample(new_in_tensor, grid, mode='bilinear', align_corners=False).squeeze()
-        transformed = tensor_to_cv2(transformed)
+        if not return_tensor:
+            transformed = tensor_to_cv2(transformed)
         return transformed, mat
 
 
@@ -75,8 +76,8 @@ class NetworkAffineSolver(BaseAffineSolver):
         return
     
     def solve(self, src: np.ndarray, dst: np.ndarray):
-        src_tensor = torch.from_numpy(src).unsqueeze(0).cuda()
-        dst_tensor = torch.from_numpy(dst).unsqueeze(0).cuda()
+        src_tensor = torch.from_numpy(src).cuda().unsqueeze(0)
+        dst_tensor = torch.from_numpy(dst).cuda().unsqueeze(0)
         with torch.no_grad():
             params = self.predictor(src_tensor, dst_tensor).detach().cpu().squeeze()
         tx, ty, rot, scale = params
@@ -135,8 +136,8 @@ class GeometryAffineSolver(BaseAffineSolver):
         mat1_batch = torch.stack((-mat01_batch, mat00_batch, mat12_batch), dim=1)
         # see Affine2dTransformer in affine2d.py
         mat_batch = torch.stack((mat0_batch, mat1_batch), dim=1)
-        src_tensor = torch.from_numpy(src).unsqueeze(0).repeat(len(rot_batch), 1, 1, 1).cuda()
-        dst_tensor = torch.from_numpy(dst).unsqueeze(0).repeat(len(rot_batch), 1, 1, 1).cuda()
+        src_tensor = torch.from_numpy(src).cuda().unsqueeze(0).repeat(len(rot_batch), 1, 1, 1)
+        dst_tensor = torch.from_numpy(dst).cuda().unsqueeze(0).repeat(len(rot_batch), 1, 1, 1)
         grid_batch = nnf.affine_grid(mat_batch, src_tensor.size(), align_corners=False)
         transformed_batch = nnf.grid_sample(src_tensor, grid_batch, mode='nearest', align_corners=False)
         errors = self.mse_func(transformed_batch.flatten(1), dst_tensor.flatten(1)).mean(1)
@@ -153,25 +154,17 @@ class HybridAffineSolver(BaseAffineSolver):
     def solve(self, src: np.ndarray, dst: np.ndarray):
         geo_tx, geo_ty, geo_rot, geo_scale = self.geometry.solve(src, dst)
         src_tensor = torch.from_numpy(src).unsqueeze(0).cuda()
-        inv_geo_scale = 1.0 / geo_scale
-        ratio = src.shape[1] / src.shape[2]
-        geo_mat = torch.stack([
-            torch.stack([inv_geo_scale * torch.cos(geo_rot), inv_geo_scale * ratio * torch.sin(geo_rot), geo_ty], dim=0),
-            torch.stack([-inv_geo_scale / ratio * torch.sin(geo_rot), inv_geo_scale * torch.cos(geo_rot), geo_tx], dim=0)
-        ], dim=0).unsqueeze(0)
+        geo_inv_s = 1.0 / geo_scale
+        geo_cos_a = math.cos(geo_rot)
+        geo_sin_a = math.sin(geo_rot)
+        geo_mat = torch.tensor([[
+            [geo_inv_s * geo_cos_a, geo_inv_s * geo_sin_a, -geo_inv_s * (geo_tx * geo_cos_a + geo_ty * geo_sin_a)],
+            [-geo_inv_s * geo_sin_a, geo_inv_s * geo_cos_a, geo_inv_s * (geo_tx * geo_sin_a - geo_ty * geo_cos_a)]
+        ]], dtype=torch.float32).cuda()
         geo_grid = nnf.affine_grid(geo_mat, src_tensor.size(), align_corners=False).cuda()
         net_in_tensor = nnf.grid_sample(src_tensor, geo_grid, mode='nearest', align_corners=False)
         net_in = net_in_tensor.squeeze().detach().cpu().numpy()
         net_tx, net_ty, net_rot, net_scale = self.network.solve(net_in, dst)
-        
-        # inv_net_scale = 1.0 / net_scale
-        # net_mat = torch.stack([
-        #     torch.stack([inv_net_scale * torch.cos(net_rot), inv_net_scale * ratio * torch.sin(net_rot), net_ty], dim=0),
-        #     torch.stack([-inv_net_scale / ratio * torch.sin(net_rot), inv_net_scale * torch.cos(net_rot), net_tx], dim=0)
-        # ], dim=0).unsqueeze(0)
-        # net_grid = nnf.affine_grid(net_mat, net_in_tensor.size(), align_corners=False).cuda()
-        # net_out_tensor = nnf.grid_sample(net_in_tensor, net_grid, mode='nearest', align_corners=False)
-        # net_out = net_out_tensor.squeeze().detach().cpu().numpy()
         
         tx = geo_tx + net_tx
         ty = geo_ty + net_ty

@@ -7,6 +7,7 @@ import numpy as np
 import cv2
 
 import paths
+from utils import time_it
 
 
 class PRRenderer:
@@ -27,6 +28,8 @@ class PRRenderer:
             out_size (int or tuple of int): (height, width) or both height and weight
             normalize（bool): whether scale and translate the mesh to a unit cube
         """
+        if out_size is None:
+            out_size = 512
         if isinstance(out_size, int):
             height = out_size
             width = out_size

@@ -169,21 +169,27 @@ def cv2_to_tensor(a):
     return a
 
 
-def images_alpha_lighten(target, blend, alpha):
+def images_alpha_lighten(under, upper, alpha):
     """
     Lighten blend target with blend. Like Lighten + alpha=50% in Photoshop.
     Args:
-        target (np.ndarray): shape of (H, W, 3), values in 0-1, under.
-        blend (np.ndarray): shape of (H, W, 3), values in 0-1, on top.
+        target: np.ndarray of (H, W, 3), 0-255 or torch.Tensor of (3, H, W), 0-1
+        upper: np.ndarray of (H, W, 3), 0-255 or torch.Tensor of (3, H, W), 0-1
         alpha (float):
     Returns:
         np.ndarray:
     """
-    # t_brt = 0.257 * target[..., 2] + 0.504 * target[..., 1] + 0.098 * target[..., 0]
-    # b_brt = 0.257 * blend[..., 2] + 0.504 * blend[..., 1] + 0.098 * blend[..., 0]
-    # blend_grt_target = np.repeat((b_brt >= t_brt)[..., np.newaxis], 3, axis=2)
-    blend_grt_target = np.repeat((blend.sum(-1) > 0.01)[..., np.newaxis], 3, axis=-1)
-    out = blend_grt_target * (alpha * blend + (1 - alpha) * target) + (1 - blend_grt_target) * target
+    if isinstance(under, np.ndarray) and isinstance(upper, np.ndarray):
+        under_t = under.transpose((2, 0, 1))
+        upper_t = upper.transpose((2, 0, 1))
+        blended = alpha * upper_t + (1 - alpha) * under_t
+        brighter = upper.sum(-1) > 0.01 * 255
+        out = brighter * blended + (1 - brighter) * under_t
+        out = out.transpose((1, 2, 0))
+    elif isinstance(under, torch.Tensor) and isinstance(upper, torch.Tensor):
+        blended = alpha * upper + (1 - alpha) * under
+        brighter = upper.sum(0) > 0.01
+        out = brighter * blended + (~brighter) * under
     return out
 
 

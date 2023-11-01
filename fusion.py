@@ -111,8 +111,11 @@ class Fuser:
             dict:
                 'render' (np.ndarray): shape of (H, W, 3)
         """
+        seg_square_2ch = segment_2ch.transpose((1, 2, 0))
+        seg_square_2ch = crop_and_resize_square(seg_square_2ch, out_size=512, interp='nearest')
+        seg_square_2ch = seg_square_2ch.transpose((2, 0, 1))
         # find the best matching probe
-        seg_feature = self.feature_extractor(torch.from_numpy(segment_2ch).cuda().unsqueeze(0))
+        seg_feature = self.feature_extractor(torch.from_numpy(seg_square_2ch).cuda().unsqueeze(0))
         similarity = self.feature_sim_func(seg_feature, self.feature_pool)
         if ablation is None or ablation != 'wo_pps':
             # similarity - min() to keep minimum = 0, then set elements out of restriction to 0 too
@@ -123,7 +126,7 @@ class Fuser:
         # re-render with additional information, registration new_in
         re_rendered = self.extra_rendered[hit_index]
         # new_out
-        transformed, affine_matrix = self.affine_solver.solve_and_affine(hit_render_2ch, segment_2ch, re_rendered)
+        transformed, affine_matrix = self.affine_solver.solve_and_affine(hit_render_2ch, seg_square_2ch, re_rendered)
         # fuse
         fused = images_alpha_lighten(cv2_to_tensor(frame).cuda(), transformed, 0.5)
         fused = tensor_to_cv2(fused)
@@ -139,13 +142,22 @@ class Fuser:
         return frame_info
 
 
-def evaluate(predict, label):
-    predict = predict[0]
+def evaluate(prediction, label):
+    """Compute the metrics between predict and label.
+    Args:
+        prediction (np.ndarray): shape of (C, H, W)
+        label (np.ndarray): shape of (C, H, W)
+    Returns:
+        dict: includes dice, hausdorff distance and average hausdorff distance
+    """
+    if prediction.shape != label.shape:
+        raise RuntimeError('The shape between prediction and label must be the same.')
+    prediction = prediction[0]
     label = label[0]
-    dice = 2 * (predict * label).sum() / (predict.sum() + label.sum())
-    predict = predict.astype(np.float32)
+    dice = 2 * (prediction * label).sum() / (prediction.sum() + label.sum())
+    prediction = prediction.astype(np.float32)
     label = label.astype(np.float32)
-    mask1 = sitk.GetImageFromArray(predict, isVector=False)
+    mask1 = sitk.GetImageFromArray(prediction, isVector=False)
     mask2 = sitk.GetImageFromArray(label, isVector=False)
     contour_filter = sitk.SobelEdgeDetectionImageFilter()
     hausdorff_distance_filter = sitk.HausdorffDistanceImageFilter()
@@ -187,9 +199,9 @@ def test(fold=0, n_fold=6, ablation=None):
         # affine 2d solver
         affine2d_weight_dir = 'affine2d' if ablation is None else 'affine2d_' + ablation
         affine2d_path = '{}/fold{}/{}/best.pth'.format(paths.WEIGHTS_DIR, fold, affine2d_weight_dir)
-        affine_solver = HybridAffineSolver(weight_path=affine2d_path)
+        # affine_solver = HybridAffineSolver(weight_path=affine2d_path)
         # affine_solver = NetworkAffineSolver(weight_path=affine2d_path)
-        # affine_solver = GeometryAffineSolver()
+        affine_solver = GeometryAffineSolver()
 
         # case type
         if case_dataloader.prior_info is None:
@@ -210,33 +222,29 @@ def test(fold=0, n_fold=6, ablation=None):
         for i in range(case_dataloader.length()):
             photo = case_dataloader.images[i]
             orig_segment = case_dataloader.labels[i]
-            if orig_segment is None:        # some frames do not have segmented labels
+            if orig_segment is None:                        # some frames do not have segmented labels
                 continue
-            segment = crop_and_resize_square(orig_segment, out_size=512).transpose((2, 0, 1))
-            segment = make_channels(segment, [
-                lambda x: x[2] != 0,
-                lambda x: x[1] != 0
+            orig_seg_2ch = make_channels(orig_segment.transpose((2, 0, 1)), [
+                lambda x: x[2] != 0, lambda x: x[1] != 0
             ])
-            frame_info = fuser.process_frame(photo, segment)
+            frame_info = fuser.process_frame(photo, orig_seg_2ch)
             cv2.imwrite('{}/{}'.format(fusion_dir, case_dataloader.fns[i]), frame_info['fusion'])
+            transformed_2ch = frame_info['transformed']
+            if isinstance(transformed_2ch, torch.Tensor):
+                transformed_2ch = transformed_2ch.detach().cpu().numpy()
+            transformed_2ch = make_channels(transformed_2ch, [
+                lambda x: x.any(0) & (x[0] < x[1] + x[2]) & (x[2] < x[0] + x[1]),
+                lambda x: (x[0] < 0.1) & (x[1] > 0.2) & (x[2] > 0.2)
+            ])                                               # transformed has some other colors
             try:
-                metrics = evaluate(
-                    make_channels(frame_info['transformed'].transpose((2, 0, 1)), [
-                        lambda x: x.any(0) & (x[0] < x[1] + x[2]) & (x[2] < x[0] + x[1]),
-                        lambda x: (x[0] < 0.1) & (x[1] > 0.2) & (x[2] > 0.2)
-                    ]),
-                    make_channels(orig_segment.transpose((2, 0, 1)), [
-                        lambda x: x.any(0),
-                        lambda x: x[1] != 0
-                    ])
-                )
+                metrics = evaluate(transformed_2ch, orig_seg_2ch)
             except:
                 # mostly because of hausdorff distance compute with no pixel
                 print('Exception occurs when computing metrics of case {} frame {}.'.format(case_id, case_dataloader.fns[i]))
                 continue
             evaluations[case_dataloader.fns[i]] = metrics
             print('Case: {} Frame: {} is OK.'.format(case_id, case_dataloader.fns[i]))
-        average_metrics = {
+        evaluations['average'] = {
             'dice':
                 np.asarray([case['dice'] for case in evaluations.values()]).mean(),
             'hd':
@@ -244,7 +252,6 @@ def test(fold=0, n_fold=6, ablation=None):
             'avd':
                 np.asarray([case['avd'] for case in evaluations.values()]).mean()
         }
-        evaluations['average'] = average_metrics
         with open('{}/{}/metrics.json'.format(result_dir, case_id), 'w') as f:
             json.dump(evaluations, f, indent=4)
         # explicitly delete registrator, release renderer in time, avoid GL errors

@@ -115,7 +115,7 @@ class PRRenderer:
         return render_output
 
     def __del__(self):
-        print('The renderer is destroyed.')
+        # print('The renderer is destroyed.')
         self.renderer.delete()
 
 

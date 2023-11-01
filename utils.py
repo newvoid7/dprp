@@ -18,7 +18,7 @@ def time_it(func):
     return wrapper
 
 
-def crop_and_resize_square(img, out_size):
+def crop_and_resize_square(img, out_size, interp='bilinear'):
     """
     Crop the biggest square of the photo, which centered at the center of original photo,
     then resize it to the given size.
@@ -33,7 +33,12 @@ def crop_and_resize_square(img, out_size):
         img = img[:, (w - h) // 2: (w + h) // 2, ...]
     else:
         img = img[(h - w) // 2: (h + w) // 2, ...]
-    _out = cv2.resize(img, (out_size, out_size))
+    if interp == 'bilinear':
+        _out = cv2.resize(img, (out_size, out_size), interpolation=cv2.INTER_LINEAR)
+    elif interp == 'nearest':
+        _out = cv2.resize(img, (out_size, out_size), interpolation=cv2.INTER_NEAREST)
+    else:
+        _out = cv2.resize(img, (out_size, out_size))
     return _out
 
 

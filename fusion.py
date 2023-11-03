@@ -152,23 +152,26 @@ def evaluate(prediction, label):
     """
     if prediction.shape != label.shape:
         raise RuntimeError('The shape between prediction and label must be the same.')
-    prediction = prediction[0]
-    label = label[0]
-    dice = 2 * (prediction * label).sum() / (prediction.sum() + label.sum())
-    prediction = prediction.astype(np.float32)
-    label = label.astype(np.float32)
-    mask1 = sitk.GetImageFromArray(prediction, isVector=False)
-    mask2 = sitk.GetImageFromArray(label, isVector=False)
-    contour_filter = sitk.SobelEdgeDetectionImageFilter()
-    hausdorff_distance_filter = sitk.HausdorffDistanceImageFilter()
-    hausdorff_distance_filter.Execute(contour_filter.Execute(mask1), contour_filter.Execute(mask2))
-    hd = hausdorff_distance_filter.GetHausdorffDistance()
-    avd = hausdorff_distance_filter.GetAverageHausdorffDistance()
-    return {
-        'dice': dice,
-        'hd': hd,
-        'avd': avd
-    }
+    ret_dict = {}
+    for i in range(len(prediction)):
+        pred_ch = prediction[i]
+        gt_ch = label[i]
+        dice = 2 * (pred_ch * gt_ch).sum() / (pred_ch.sum() + gt_ch.sum())
+        pred_ch = pred_ch.astype(np.float32)
+        gt_ch = gt_ch.astype(np.float32)
+        mask1 = sitk.GetImageFromArray(pred_ch, isVector=False)
+        mask2 = sitk.GetImageFromArray(gt_ch, isVector=False)
+        contour_filter = sitk.SobelEdgeDetectionImageFilter()
+        hausdorff_distance_filter = sitk.HausdorffDistanceImageFilter()
+        hausdorff_distance_filter.Execute(contour_filter.Execute(mask1), contour_filter.Execute(mask2))
+        hd = hausdorff_distance_filter.GetHausdorffDistance()
+        avd = hausdorff_distance_filter.GetAverageHausdorffDistance()
+        ret_dict['channel ' + str(i)] = {
+            'dice': dice,
+            'hd': hd,
+            'avd': avd
+        }
+    return ret_dict
 
 
 def test(fold=0, n_fold=6, ablation=None):
@@ -245,12 +248,10 @@ def test(fold=0, n_fold=6, ablation=None):
             evaluations[case_dataloader.fns[i]] = metrics
             print('Case: {} Frame: {} is OK.'.format(case_id, case_dataloader.fns[i]))
         evaluations['average'] = {
-            'dice':
-                np.asarray([case['dice'] for case in evaluations.values()]).mean(),
-            'hd':
-                np.asarray([case['hd'] for case in evaluations.values()]).mean(),
-            'avd':
-                np.asarray([case['avd'] for case in evaluations.values()]).mean()
+            channel: {
+                metric: np.asarray([case_value[channel][metric] for case_value in evaluations.values()]).mean()
+                for metric in list(evaluations.values())[0][channel].keys()
+            } for channel in list(evaluations.values())[0].keys()
         }
         with open('{}/{}/metrics.json'.format(result_dir, case_id), 'w') as f:
             json.dump(evaluations, f, indent=4)

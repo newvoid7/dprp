@@ -123,7 +123,7 @@ class GeometryAffineSolver(BaseAffineSolver):
         tx = center1_w - center0_w
         ty = center1_h - center0_h
         # use tumor channel to compute scale, sometimes tumor is complete and kidney is not
-        scale = max(dst[1].sum() / src[1].sum(), dst[0].sum() / src[0].sum()) ** 0.5
+        scale = (dst.sum() / src.sum()) ** 0.5
         inv_s = 1.0 / scale
         rot_batch = torch.arange(0, 360, 1, dtype=torch.float32, device='cuda') / 180 * torch.pi
         sin_a = torch.sin(rot_batch)

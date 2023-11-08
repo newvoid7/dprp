@@ -115,7 +115,7 @@ def cosine_similarity(x, y, dim=0):
     """
     Function like torch.nn.CosineSimilarity, but on np.ndarray.
     Args:
-        x (np.ndarray): shape should be
+        x (np.ndarray)
         y (np.ndarray)
         dim (int): where to compute the similarity
     Return:

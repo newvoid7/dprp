@@ -48,8 +48,8 @@ class Affine2dTransformer(nn.Module):
     def __init__(self):
         self.tx_range = (-1.0, 1.0)
         self.ty_range = (-1.0, 1.0)
-        self.rot_range = (-math.pi / 3.0, math.pi / 3.0)
-        self.scale_range = (0.333333, 3.0)
+        self.rot_range = (-math.pi, math.pi)
+        self.scale_range = (1 / 5.0, 5.0)
         self.tx_lambda = lambda x: x * (self.tx_range[1] - self.tx_range[0]) + self.tx_range[0]
         self.ty_lambda = lambda y: y * (self.ty_range[1] - self.ty_range[0]) + self.ty_range[0]
         self.rot_lambda = lambda r: r * (self.rot_range[1] - self.rot_range[0]) + self.rot_range[0]

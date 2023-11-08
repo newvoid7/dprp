@@ -1,4 +1,5 @@
 import os
+import random
 
 import torch
 from torch.nn import CosineSimilarity
@@ -9,7 +10,7 @@ from dataloaders import set_fold, TestSingleCaseDataloader
 import paths
 from probe import ProbeGroup
 from agent import AgentTask
-from utils import make_channels
+from utils import make_channels, cosine_similarity
 from fusion import restrictions
 
 
@@ -19,6 +20,8 @@ def test_profen(fold=0, n_fold=6, ablation=None):
         fold (int, optional): _description_. Defaults to 0.
         n_fold (int, optional): _description_. Defaults to 6.
         ablation (_type_, optional): _description_. Defaults to None.
+    Returns:
+        []
     """
     _, test_cases = set_fold(fold, n_fold)
     agent_task = AgentTask(occlusion_dir=os.path.join(paths.DATASET_DIR, '.mask'))
@@ -56,6 +59,7 @@ def test_profen(fold=0, n_fold=6, ablation=None):
         rendered_2ch_pool = np.asarray([make_channels(p.render.transpose((2, 0, 1)),
                                             [lambda x: x[0] != 0, lambda x: (x[0] == 0) & (x.any(0))])
                                         for p in probes])
+        rendered_2ch_pool = torch.from_numpy(rendered_2ch_pool)
         feature_pool = []
         bs = 128
         with torch.no_grad():
@@ -67,22 +71,32 @@ def test_profen(fold=0, n_fold=6, ablation=None):
         feature_pool = torch.cat(feature_pool, dim=0)
         
         # test
-        for i, p in enumerate(probes):
-            if not pps_filtered[i]:
-                continue
-            input = torch.from_numpy(rendered_2ch_pool[i]).cuda().unsqueeze(0)
+        ts = 100                # test how many times
+        bs = 16                 # batch size
+        for i in range(ts):
+            input = []
+            target = []
+            pred = []
+            for _ in range(bs):
+                index = random.randint(0, len(rendered_2ch_pool) - 1)
+                while not pps_filtered[index]:          # only select probes in resitriction
+                    index = random.randint(0, len(rendered_2ch_pool) - 1)
+                input.append(rendered_2ch_pool[index])
+                target.append(probes[index].get_orientation())
+            input = torch.stack(input, dim=0).cuda()
+            target = np.stack(target, axis=0)
             input = agent_task.apply(input)
-            target = p.get_orientation()
             feature = profen(input)
-            similarity = sim_func(feature, feature_pool)
-            if ablation is None or ablation != 'wo_pps':
-                similarity = pps_filtered * (similarity - similarity.min())
-            hit_index = similarity.argmax()
-            pred = probes[hit_index].get_orientation()
-            loss = (pred * target).sum() 
-            loss /= (pred ** 2).sum() ** 0.5 
-            loss /= (target ** 2).sum() ** 0.5
-            case_loss.append(1.0 - loss)
+            for f in feature:
+                similarity = sim_func(f, feature_pool)
+                if ablation is None or ablation != 'wo_pps':
+                    similarity = pps_filtered * (similarity - similarity.min())
+                hit_index = similarity.argmax()
+                pred.append(probes[hit_index].get_orientation())
+            pred = np.stack(pred, axis=0)
+            loss = cosine_similarity(target, pred, dim=1).mean()
+            loss = 0.5 - loss / 2
+            case_loss.append(loss)
         test_loss.append(case_loss)
     return test_loss
 
@@ -96,12 +110,12 @@ if __name__ == '__main__':
     loss_div_16 = []
     loss_wo_pps = []
     for fold in range(6):
-        loss.append(test_profen(fold))
-        loss_wo_ref_loss.append(test_profen(fold, ablation='wo_ref_loss'))
-        loss_div_4.append(test_profen(fold, ablation='div_4'))
-        loss_div_9.append(test_profen(fold, ablation='div_9'))
-        loss_div_16.append(test_profen(fold, ablation='div_16'))
-        loss_wo_pps.append(test_profen(fold, ablation='wo_pps'))
+        loss += test_profen(fold)
+        loss_wo_ref_loss += test_profen(fold, ablation='wo_ref_loss')
+        loss_div_4 += test_profen(fold, ablation='div_4')
+        loss_div_9 += test_profen(fold, ablation='div_9')
+        loss_div_16 += test_profen(fold, ablation='div_16')
+        loss_wo_pps += test_profen(fold, ablation='wo_pps')
     loss = [np.asarray(l) for l in loss]
     loss_wo_ref_loss = [np.asarray(l) for l in loss_wo_ref_loss]
     loss_div_4 = [np.asarray(l) for l in loss_div_4]

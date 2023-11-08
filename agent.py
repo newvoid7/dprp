@@ -2,7 +2,7 @@ import os
 import random
 
 import cv2
-# from torchvision import transforms
+from torchvision import transforms
 import torch.nn.functional as nnf
 import torch
 
@@ -38,7 +38,14 @@ class AgentTask:
         #     transforms.RandomResizedCrop(size=512, scale=(0.2, 1.1), ratio=(1.0, 1.0),
         #                                  interpolation=transforms.InterpolationMode.NEAREST)
         # ])
+        # i = transform(i)
         params = torch.rand((i.size(0), 4)).to(i.device)
+        # tx, ty: -0.5 ~ 0.5 -> 0.25 ~ 0.75
+        params[:, 0: 2] = params[:, 0: 2] * 0.5 + 0.25
+        # rot: -pi/3 ~ pi/3 -> 1/3 ~ 2/3
+        params[:, 2] = params[:, 2] * (1 / 3.0) + (1 / 3.0)
+        # scale: 8/9 ~ 5 -> 0.46 ~ 1
+        params[:, 3] = params[:, 3] * 0.54 + 0.46
         self.real_params = params
         i = self.transformer(i, params)
         hw = i.size()[-2:]

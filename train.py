@@ -205,7 +205,7 @@ if __name__ == '__main__':
     if not args.ablation:
         for fold in args.folds:
             ProfenTrainer(fold=fold, n_folds=args.n_folds).train()
-            Affine2DTrainer(fold=fold, n_folds=args.n_folds).train()
+            # Affine2DTrainer(fold=fold, n_folds=args.n_folds).train()
     else:
         for fold in args.folds:
             ProfenTrainer(ablation='wo_ref_loss', fold=fold, n_folds=args.n_folds).train()

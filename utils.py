@@ -13,7 +13,9 @@ def time_it(func):
         start = time.time()
         result = func(*args, **kwargs)
         end = time.time()
-        print('[TIMELOG] function \'{}\' cost time: {:.2f} ms.'.format(func.__name__, (end - start) * 1000))
+        with open(func.__name__ + '.log', 'a') as f:
+            f.write('[{}]: {:.2f} ms.\n'.format(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()), (end - start) * 1000))
+        # print('[TIMELOG] function \'{}\' cost time: {:.2f} ms.'.format(func.__name__, (end - start) * 1000))
         return result
     return wrapper
 

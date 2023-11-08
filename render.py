@@ -68,7 +68,7 @@ class PRRenderer:
         self.scene.add_node(self.node_mesh)
         self.scene.add_node(self.node_camera)
         self.scene.add_node(self.node_light)
-        print('The renderer is created')
+        # print('The renderer is created')
         return
 
     def render(self, mat, draw_mesh=None, mode='BGR'):

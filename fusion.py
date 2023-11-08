@@ -193,15 +193,15 @@ def test(fold=0, n_fold=6, ablation=None):
             probe_group.sparse(factor=int(ablation[4:]) ** 0.5)
         
         # feature extractor
-        profen_weight_dir = 'profen' if ablation is None else 'profen_' + ablation
+        profen_weight_dir = 'profen' if ablation is None or ablation == 'wo_pps' else 'profen_' + ablation
         profen_path = '{}/fold{}/{}/best.pth'.format(paths.WEIGHTS_DIR, fold, profen_weight_dir)
         profen = ProFEN().cuda()
         profen.load_state_dict(torch.load(profen_path))
         profen.eval()
         
         # affine 2d solver
-        affine2d_weight_dir = 'affine2d' if ablation is None else 'affine2d_' + ablation
-        affine2d_path = '{}/fold{}/{}/best.pth'.format(paths.WEIGHTS_DIR, fold, affine2d_weight_dir)
+        # affine2d_weight_dir = 'affine2d' if ablation is None or ablation == 'wo_pps' else 'affine2d_' + ablation
+        # affine2d_path = '{}/fold{}/{}/best.pth'.format(paths.WEIGHTS_DIR, fold, affine2d_weight_dir)
         # affine_solver = HybridAffineSolver(weight_path=affine2d_path)
         # affine_solver = NetworkAffineSolver(weight_path=affine2d_path)
         affine_solver = GeometryAffineSolver()
@@ -247,12 +247,15 @@ def test(fold=0, n_fold=6, ablation=None):
                 continue
             evaluations[case_dataloader.fns[i]] = metrics
             print('Case: {} Frame: {} is OK.'.format(case_id, case_dataloader.fns[i]))
-        evaluations['average'] = {
-            channel: {
-                metric: np.asarray([case_value[channel][metric] for case_value in evaluations.values()]).mean()
-                for metric in list(evaluations.values())[0][channel].keys()
-            } for channel in list(evaluations.values())[0].keys()
-        }
+        try:
+            evaluations['average'] = {
+                channel: {
+                    metric: np.asarray([case_value[channel][metric] for case_value in evaluations.values()]).mean()
+                    for metric in list(evaluations.values())[0][channel].keys()
+                } for channel in list(evaluations.values())[0].keys()
+            }
+        except:
+            print('Case {} all frames metrics not available'.format(case_id))
         with open('{}/{}/metrics.json'.format(result_dir, case_id), 'w') as f:
             json.dump(evaluations, f, indent=4)
         # explicitly delete registrator, release renderer in time, avoid GL errors
@@ -269,7 +272,7 @@ if __name__ == '__main__':
                         help='which folds should be trained, e.g. --folds 0 2 4')
     parser.add_argument('--n_folds', type=int, default=6, required=False, 
                         help='how many folds in total')
-    parser.add_argument('--ablation', action='store_true', default=False, required=False, 
+    parser.add_argument('--ablation', action='store_true', default=True, required=False, 
                         help='whether do the ablation')
     args = parser.parse_args()
     
@@ -285,5 +288,5 @@ if __name__ == '__main__':
             test(fold, args.n_folds, ablation='div_4')
             test(fold, args.n_folds, ablation='div_9')
             test(fold, args.n_folds, ablation='div_16')
-            test(fold, args.n_folds, ablation='wo_agent')
+            # test(fold, args.n_folds, ablation='wo_agent')
             test(fold, args.n_folds, ablation='wo_pps')

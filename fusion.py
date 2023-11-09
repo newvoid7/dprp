@@ -157,15 +157,19 @@ def evaluate(prediction, label):
         pred_ch = prediction[i]
         gt_ch = label[i]
         dice = 2 * (pred_ch * gt_ch).sum() / (pred_ch.sum() + gt_ch.sum())
-        pred_ch = pred_ch.astype(np.float32)
-        gt_ch = gt_ch.astype(np.float32)
-        mask1 = sitk.GetImageFromArray(pred_ch, isVector=False)
-        mask2 = sitk.GetImageFromArray(gt_ch, isVector=False)
-        contour_filter = sitk.SobelEdgeDetectionImageFilter()
-        hausdorff_distance_filter = sitk.HausdorffDistanceImageFilter()
-        hausdorff_distance_filter.Execute(contour_filter.Execute(mask1), contour_filter.Execute(mask2))
-        hd = hausdorff_distance_filter.GetHausdorffDistance()
-        avd = hausdorff_distance_filter.GetAverageHausdorffDistance()
+        try:
+            pred_ch = pred_ch.astype(np.float32)
+            gt_ch = gt_ch.astype(np.float32)
+            mask1 = sitk.GetImageFromArray(pred_ch, isVector=False)
+            mask2 = sitk.GetImageFromArray(gt_ch, isVector=False)
+            contour_filter = sitk.SobelEdgeDetectionImageFilter()
+            hausdorff_distance_filter = sitk.HausdorffDistanceImageFilter()
+            hausdorff_distance_filter.Execute(contour_filter.Execute(mask1), contour_filter.Execute(mask2))
+            hd = hausdorff_distance_filter.GetHausdorffDistance()
+            avd = hausdorff_distance_filter.GetAverageHausdorffDistance()
+        except:             # Hasudorff distance computing with no pixels
+            hd = (prediction.shape[1] + prediction.shape[2]) / 2
+            avd = (prediction.shape[1] + prediction.shape[2]) / 2
         ret_dict['channel ' + str(i)] = {
             'dice': dice,
             'hd': hd,
@@ -239,23 +243,15 @@ def test(fold=0, n_fold=6, ablation=None):
                 lambda x: x.any(0) & (x[0] < x[1] + x[2]) & (x[2] < x[0] + x[1]),
                 lambda x: (x[0] < 0.1) & (x[1] > 0.2) & (x[2] > 0.2)
             ])                                               # transformed has some other colors
-            try:
-                metrics = evaluate(transformed_2ch, orig_seg_2ch)
-            except:
-                # mostly because of hausdorff distance compute with no pixel
-                print('Exception occurs when computing metrics of case {} frame {}.'.format(case_id, case_dataloader.fns[i]))
-                continue
+            metrics = evaluate(transformed_2ch, orig_seg_2ch)
             evaluations[case_dataloader.fns[i]] = metrics
             print('Case: {} Frame: {} is OK.'.format(case_id, case_dataloader.fns[i]))
-        try:
-            evaluations['average'] = {
-                channel: {
-                    metric: np.asarray([case_value[channel][metric] for case_value in evaluations.values()]).mean()
-                    for metric in list(evaluations.values())[0][channel].keys()
-                } for channel in list(evaluations.values())[0].keys()
-            }
-        except:
-            print('Case {} all frames metrics not available'.format(case_id))
+        evaluations['average'] = {
+            channel: {
+                metric: np.asarray([case_value[channel][metric] for case_value in evaluations.values()]).mean()
+                for metric in list(evaluations.values())[0][channel].keys()
+            } for channel in list(evaluations.values())[0].keys()
+        }
         with open('{}/{}/metrics.json'.format(result_dir, case_id), 'w') as f:
             json.dump(evaluations, f, indent=4)
         # explicitly delete registrator, release renderer in time, avoid GL errors
@@ -284,9 +280,8 @@ if __name__ == '__main__':
             test(fold, args.n_folds)
     else:
         for fold in args.folds:
-            test(fold, args.n_folds, ablation='wo_ref_loss')
             test(fold, args.n_folds, ablation='div_4')
             test(fold, args.n_folds, ablation='div_9')
             test(fold, args.n_folds, ablation='div_16')
-            # test(fold, args.n_folds, ablation='wo_agent')
+            test(fold, args.n_folds, ablation='wo_agent')
             test(fold, args.n_folds, ablation='wo_pps')

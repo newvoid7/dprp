@@ -103,23 +103,20 @@ def test_profen(fold=0, n_fold=6, ablation=None):
 
 if __name__ == '__main__':
     os.environ['CUDA_VISIBLE_DEVICES'] = '3'
+    ablations = ['div_4', 'div_9', 'div_16', 'wo_ref_loss', 'wo_pps', 'wo_agent']
     loss = []
-    loss_wo_ref_loss = []
-    loss_div_4 = []
-    loss_div_9 = []
-    loss_div_16 = []
-    loss_wo_pps = []
+    loss_abl = {
+        'div_4': [],
+        'div_9': [],
+        'div_16': [],
+        'wo_pps': [],
+        'wo_agent': []
+    }
     for fold in range(6):
         loss += test_profen(fold)
-        loss_wo_ref_loss += test_profen(fold, ablation='wo_ref_loss')
-        loss_div_4 += test_profen(fold, ablation='div_4')
-        loss_div_9 += test_profen(fold, ablation='div_9')
-        loss_div_16 += test_profen(fold, ablation='div_16')
-        loss_wo_pps += test_profen(fold, ablation='wo_pps')
-    loss = [np.asarray(l) for l in loss]
-    loss_wo_ref_loss = [np.asarray(l) for l in loss_wo_ref_loss]
-    loss_div_4 = [np.asarray(l) for l in loss_div_4]
-    loss_div_9 = [np.asarray(l) for l in loss_div_9]
-    loss_div_16 = [np.asarray(l) for l in loss_div_16]
-    loss_wo_pps = [np.asarray(l) for l in loss_wo_pps]
+        for k, v in loss_abl:
+            v += test_profen(fold, ablation=k)
+    loss = [np.asarray(l).mean() for l in loss]
+    for k, v in loss_abl:
+        v = [np.asarray(l).mean() for l in v]
     print('OK')

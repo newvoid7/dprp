@@ -234,7 +234,7 @@ def test(fold=0, n_fold=6, ablation=None):
             orig_seg_2ch = make_channels(orig_segment.transpose((2, 0, 1)), [
                 lambda x: x[2] != 0, lambda x: x[1] != 0
             ])
-            frame_info = fuser.process_frame(photo, orig_seg_2ch)
+            frame_info = fuser.process_frame(photo, orig_seg_2ch, ablation=ablation)
             cv2.imwrite('{}/{}'.format(fusion_dir, case_dataloader.fns[i]), frame_info['fusion'])
             transformed_2ch = frame_info['transformed']
             if isinstance(transformed_2ch, torch.Tensor):
@@ -280,8 +280,8 @@ if __name__ == '__main__':
             test(fold, args.n_folds)
     else:
         for fold in args.folds:
-            test(fold, args.n_folds, ablation='div_4')
-            test(fold, args.n_folds, ablation='div_9')
-            test(fold, args.n_folds, ablation='div_16')
+            # test(fold, args.n_folds, ablation='div_4')
+            # test(fold, args.n_folds, ablation='div_9')
+            # test(fold, args.n_folds, ablation='div_16')
             test(fold, args.n_folds, ablation='wo_agent')
-            test(fold, args.n_folds, ablation='wo_pps')
+            # test(fold, args.n_folds, ablation='wo_pps')

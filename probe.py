@@ -91,7 +91,7 @@ class ProbeGroup:
         self.render_size = None
         if mesh_path is not None and deserialize_path is None:
             self.generate()
-        if deserialize_path is not None:
+        elif deserialize_path is not None:
             self.deserialize(deserialize_path)
 
     @time_it
@@ -118,7 +118,7 @@ class ProbeGroup:
                 k += 1
                 print('Generated probe [{}/{}]'.format(k, len(azimuth_sample) * len(elevation_sample)))
         self.amount = len(self.probes)
-        self.render_size = render_size
+        self.render_size = self.probes[0].render.shape[:-1]
 
     @time_it
     def visualize(self, result_dir, stitch=True, cell_width=200, gap=5):
@@ -234,7 +234,6 @@ if __name__ == '__main__':
         pg = ProbeGroup(
             mesh_path=os.path.join(base_dir, case, paths.MESH_FILENAME)
         )
-        pg.generate()
         pg.serialize(os.path.join(case_result_dir, paths.PROBE_FILENAME))
         pg.visualize(case_result_dir)
         # probes = deserialize_probes(os.path.join(case_result_dir, paths.PROBE_FILENAME))

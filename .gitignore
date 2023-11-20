@@ -6,5 +6,6 @@ weights/
 results*/
 results/
 log*
+tmp*
 *.log
 *.pyc

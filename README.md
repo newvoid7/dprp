@@ -12,7 +12,19 @@ Place the data including:
 of each case to the directory specified in `paths.py`.
 
 ## Quick run
+```
+bash ./fast_run.sh
+```
+This command will do following steps:
+1. Install the dependencies. 
+2. Generate mesh models from volume images.
+3. Generate probes. Run `python probe.py` to generate probes surrounding the 3D mesh model.
+4. Train the model. Run `python trian.py`.
+5. Do the fusion. Run `python fusion.py`.
 
-1. Generate probes. Run `python probe.py` to generate probes surrounding the 3D mesh model.
-2. Train the model. Run `python trian.py`.
-3. Do the fusion. Run `python fusion.py`.
+## Example
+<video src="./assets/Case1.mp4" autoplay="true" controls>
+</video>
+
+<video src="./assets/Case4.mp4" autoplay="true" controls>
+</video>

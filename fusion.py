@@ -45,6 +45,11 @@ restrictions = {
         'description': 'The renal main axis is z=y, the renal hilum is face to (1, -1, 0).',
         'azimuth': lambda x: (-45 <= x) & (x <= 60),
         'elevation': lambda x: (-60 <= x) & (x <= 0)
+    },
+    'type6' :{
+        'destription': 'The renal main axis is z=x, the renal hilum is face to (1, -1, 1).',
+        'azimuth': lambda x: (90 <= x) & (x <= 180),
+        'elevation': lambda x: (-45 <= x) & (x <= 45)
     }
 }
 

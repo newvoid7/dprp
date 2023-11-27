@@ -1,4 +1,5 @@
 import math
+from turtle import forward
 
 import torch
 import torch.nn as nn
@@ -28,6 +29,32 @@ class Affine2dPredictor(nn.Module):
         x = torch.sigmoid(x)
         return x
 
+
+class Affine2dPredictorSlim(nn.Module):
+    def __init__(self, n_channels=2):
+        super(Affine2dPredictorSlim, self).__init__()
+        self.first = nn.Conv2d(in_channels=n_channels, out_channels=64, kernel_size=7, stride=2, padding=3, bias=False)
+        self.encoder = models.resnet18(weights=models.resnet.ResNet18_Weights.IMAGENET1K_V1)
+        self.fc = nn.Linear(1024, 4)
+    
+    def encode(self, x):
+        x = self.first(x)
+        x = self.encoder.relu(self.encoder.bn1(x))
+        x = self.encoder.layer1(self.encoder.maxpool(x))
+        x = self.encoder.layer2(x)
+        x = self.encoder.layer3(x)
+        x = self.encoder.layer4(x)
+        x = self.encoder.avgpool(x)
+        x = torch.flatten(x, 1)
+        return x
+    
+    def forward(self, in0, in1):
+        f0 = self.encode(in0)
+        f1 = self.encode(in1)
+        out = self.fc(torch.cat([f0, f1], dim=1))
+        out = torch.sigmoid(out)
+        return out
+        
 
 class Affine2dTransformer(nn.Module):
     """

@@ -269,11 +269,11 @@ def test(fold=0, n_fold=6, ablation=None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Fusion settings')
     parser.add_argument('--gpu', type=int, default=3, required=False, help='do inference on which gpu')
-    parser.add_argument('--folds', type=int, nargs='+', default=[0, 1, 2, 3, 4, 5], required=False, 
+    parser.add_argument('--folds', type=int, nargs='+', default=[0, 1, 2, 3], required=False, 
                         help='which folds should be trained, e.g. --folds 0 2 4')
-    parser.add_argument('--n_folds', type=int, default=6, required=False, 
+    parser.add_argument('--n_folds', type=int, default=4, required=False, 
                         help='how many folds in total')
-    parser.add_argument('--ablation', action='store_true', default=True, required=False, 
+    parser.add_argument('--ablation', action='store_true', default=False, required=False, 
                         help='whether do the ablation')
     args = parser.parse_args()
     
@@ -285,8 +285,8 @@ if __name__ == '__main__':
             test(fold, args.n_folds)
     else:
         for fold in args.folds:
-            # test(fold, args.n_folds, ablation='div_4')
-            # test(fold, args.n_folds, ablation='div_9')
-            # test(fold, args.n_folds, ablation='div_16')
+            test(fold, args.n_folds, ablation='div_4')
+            test(fold, args.n_folds, ablation='div_9')
+            test(fold, args.n_folds, ablation='div_16')
             test(fold, args.n_folds, ablation='wo_agent')
-            # test(fold, args.n_folds, ablation='wo_pps')
+            test(fold, args.n_folds, ablation='wo_pps')

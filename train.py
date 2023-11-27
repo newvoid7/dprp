@@ -7,7 +7,7 @@ from torch.nn import MSELoss
 import matplotlib.pyplot as plt
 
 from network.profen import ProFEN
-from network.transform import Affine2dPredictor, Affine2dTransformer
+from network.transform import Affine2dPredictor, Affine2dPredictorSlim, Affine2dTransformer
 from network.loss import RefInfoNCELoss, InfoNCELoss
 from dataloaders import ProbeSingleCaseDataloader
 from probe import ProbeGroup
@@ -141,7 +141,7 @@ class ProfenTrainer(BaseTrainer):
 
 class Affine2DTrainer(BaseTrainer):
     def __init__(self, ablation=None, fold=0, n_folds=0, batch_size=8, **kwargs):
-        model = Affine2dPredictor()
+        model = Affine2dPredictorSlim()
         model_name = 'affine2d' if ablation is None else 'affine2d_' + ablation
         save_dir = os.path.join(paths.WEIGHTS_DIR, 'fold{}'.format(fold), model_name)
         self.transformer = Affine2dTransformer().cuda()
@@ -188,9 +188,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Training parameters')
     parser.add_argument('--gpu', type=int, default=0, required=False, 
                         help='train on which gpu')
-    parser.add_argument('--folds', type=int, nargs='+', default=[0, 1, 2, 3, 4, 5], required=False, 
+    parser.add_argument('--folds', type=int, nargs='+', default=[0, 1, 2, 3], required=False, 
                         help='which folds should be trained, e.g. --folds 0 2 4')
-    parser.add_argument('--n_folds', type=int, default=6, required=False, 
+    parser.add_argument('--n_folds', type=int, default=4, required=False, 
                         help='how many folds in total')
     parser.add_argument('--ablation', action='store_true', default=False, required=False, 
                         help='whether do the ablation')
@@ -199,8 +199,8 @@ if __name__ == '__main__':
     os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
     if not args.ablation:
         for fold in args.folds:
-            ProfenTrainer(fold=fold, n_folds=args.n_folds).train()
-            # Affine2DTrainer(fold=fold, n_folds=args.n_folds).train()
+            # ProfenTrainer(fold=fold, n_folds=args.n_folds).train()
+            Affine2DTrainer(fold=fold, n_folds=args.n_folds).train()
     else:
         for fold in args.folds:
             ProfenTrainer(ablation='div_4', fold=fold, n_folds=args.n_folds).train()

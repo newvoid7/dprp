@@ -4,7 +4,6 @@ import argparse
 
 import numpy as np
 import torch
-from torch.nn import CosineSimilarity
 import cv2
 import SimpleITK as sitk
 
@@ -16,6 +15,7 @@ from probe import ProbeGroup
 from dataloaders import set_fold, TestSingleCaseDataloader
 import paths
 from render import PRRenderer
+from pps import PPS 
 
 
 restrictions = {
@@ -58,6 +58,7 @@ class Fuser:
     def __init__(self, 
                  case_type, 
                  probe_group, 
+                 with_pps,
                  feature_extractor: torch.nn.Module = None, 
                  affine2d_solver: BaseAffineSolver = None,
                  image_size=512):
@@ -72,7 +73,6 @@ class Fuser:
         self.image_size = image_size
         self.feature_extractor = feature_extractor
         self.affine_solver = affine2d_solver
-        self.feature_sim_func = CosineSimilarity()
 
         probes = probe_group.probes
         # (Np,)
@@ -96,16 +96,20 @@ class Fuser:
         self.feature_pool = torch.cat(self.feature_pool, dim=0)
 
         # PPS
-        self.restriction = restrictions[case_type]
-        self.pps_filtered = self.restriction['azimuth'](self.probe_azimuth) & self.restriction['elevation'](self.probe_elevation)
-        self.pps_filtered = torch.from_numpy(self.pps_filtered).cuda()
+        if with_pps:
+            restriction = restrictions[case_type]
+            pps_filtered = restriction['azimuth'](self.probe_azimuth) & restriction['elevation'](self.probe_elevation)
+            pps_filtered = torch.from_numpy(pps_filtered).cuda()
+            self.pps = PPS(probe_group, self.feature_pool, pps_filtered)
+        else:
+            self.pps = PPS(probe_group, self.feature_pool)
         
         # for re-render
         self.renderer = PRRenderer(probe_group.mesh_path, out_size=image_size)
         self.extra_rendered = [self.renderer.render(mat=p.get_matrix()) for p in probes]
 
     @time_it
-    def process_frame(self, frame, segment_2ch, ablation=None):
+    def process_frame(self, frame, segment_2ch):
         """
         Use the closest probe in the given range.
         Args:
@@ -121,11 +125,7 @@ class Fuser:
         seg_square_2ch = seg_square_2ch.transpose((2, 0, 1))
         # find the best matching probe
         seg_feature = self.feature_extractor(torch.from_numpy(seg_square_2ch).cuda().unsqueeze(0))
-        similarity = self.feature_sim_func(seg_feature, self.feature_pool)
-        if ablation is None or ablation != 'wo_pps':
-            # similarity - min() to keep minimum = 0, then set elements out of restriction to 0 too
-            similarity = self.pps_filtered * (similarity - similarity.min())
-        hit_index = similarity.argmax()
+        hit_index = self.pps.best(seg_feature)
         # registration src
         hit_render_2ch = self.rendered_2ch_pool[hit_index]
         # re-render with additional information, registration new_in
@@ -199,7 +199,7 @@ def test(fold=0, n_fold=6, ablation=None):
         probe_path = os.path.join(paths.RESULTS_DIR, case_id, paths.PROBE_FILENAME)
         probe_group = ProbeGroup(deserialize_path=probe_path)
         if ablation is not None and ablation.startswith('div_'):
-            probe_group.sparse(factor=int(ablation[4:]) ** 0.5)
+            probe_group.sparse(factor=int(ablation[4:]))
         
         # feature extractor
         profen_weight_dir = 'profen' if ablation is None or ablation == 'wo_pps' else 'profen_' + ablation
@@ -224,10 +224,11 @@ def test(fold=0, n_fold=6, ablation=None):
         # fuse
         fuser = Fuser(
             probe_group=probe_group,
+            with_pps=(ablation is None or ablation != 'wo_pps'),
             case_type=case_type,
             feature_extractor=profen,
             affine2d_solver=affine_solver,
-            image_size=case_dataloader.image_size(),
+            image_size=case_dataloader.image_size()
         )
 
         evaluations = {}

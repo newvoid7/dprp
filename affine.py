@@ -23,7 +23,6 @@ class BaseAffineSolver:
         """
         pass
     
-    @time_it
     def solve_and_affine(self, src: np.ndarray, dst: np.ndarray, new_in: np.ndarray, return_tensor=True):
         """
         Solve the affine transform factors from src to dst (assume they are square images), and apply it on new_in.

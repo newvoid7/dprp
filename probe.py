@@ -1,3 +1,4 @@
+from ctypes import ArgumentError
 import json
 import math
 import os
@@ -5,8 +6,11 @@ import os
 import cv2
 import numpy as np
 from render import PRRenderer
+import matplotlib.pyplot as plt
+from tqdm import tqdm
 
-from utils import time_it, quaternion_from_view_up, quaternion_rotate_vec, quaternion_to_matrix
+from utils import (time_it, quaternion_from_view_up, quaternion_rotate_vec, quaternion_to_matrix, 
+    cartesian_product, cosine_similarity)
 import paths
 
 
@@ -48,6 +52,9 @@ class Probe:
 
     def get_eye(self):
         return self.camera_position
+    
+    def get_radius(self):
+        return np.linalg.norm(self.camera_position)
 
     def get_orientation(self):
         return quaternion_rotate_vec(np.asarray(DEFAULT_ORIENTATION, dtype=float), self.camera_quaternion)
@@ -81,44 +88,68 @@ class ProbeGroup:
         The azimuth is from x-axis to y-axis.
         Args:
             mesh_path:
-            radius:
-            azimuth_sample:
-            elevation_sample:
+            deserialize_path: 
         """
         self.mesh_path = mesh_path
         self.probes = []
         self.amount = 0
         self.render_size = None
+        self.grid_type = None
+        self.neighbor = []
         if mesh_path is not None and deserialize_path is None:
             self.generate()
         elif deserialize_path is not None:
             self.deserialize(deserialize_path)
 
     @time_it
-    def generate(self, radius=2.5, azimuth_sample=None, elevation_sample=None, render_size=None):
+    def generate(self, amount=600, radius=2.5, grid_type='fib'):
         """
         Generate flat-textured render from the azimuth and elevation samples
         """
-        k = 0
         self.probes = []
         renderer = PRRenderer(self.mesh_path, out_size=self.render_size)
-        if azimuth_sample is None:
-            azimuth_sample = [a / 180 * math.pi for a in range(0, 360, 10)]
-        if elevation_sample is None:
-            elevation_sample = [a / 180 * math.pi for a in range(-80, 90, 10)]
-        for azimuth in azimuth_sample:
-            for elevation in elevation_sample:
-                position = [radius * math.cos(elevation) * math.cos(azimuth),
-                            radius * math.cos(elevation) * math.sin(azimuth),
-                            radius * math.sin(elevation)]
-                probe = Probe(self.mesh_path, eye=position, focus=[0, 0, 0], up=[0, 0, 1], render=None)
-                label = renderer.render(probe.get_matrix(), mode='FLAT', draw_mesh=[0, 1])[..., ::-1]
-                probe.render = label
-                self.probes.append(probe)
-                k += 1
-                print('Generated probe [{}/{}]'.format(k, len(azimuth_sample) * len(elevation_sample)))
+        if grid_type == 'sph':
+            # use sphere coordinate system
+            z_total = int((amount / 2) ** 0.5)
+            a_total = amount / z_total
+            azimuth_sample = np.linspace(start=0, stop=2*np.pi, num=a_total, endpoint=False)
+            zenith_sample = np.linspace(start=np.pi/(z_total + 1), stop=np.pi, num=z_total, endpoint=False)
+            zenith, azimuth = np.meshgrid(zenith_sample, azimuth_sample)
+            azimuth = azimuth.flatten()
+            zenith = zenith.flatten()
+            positions = np.stack([
+                radius * np.sin(zenith) * np.cos(azimuth),
+                radius * np.sin(zenith) * np.sin(azimuth),
+                radius * np.cos(zenith)
+            ], axis=1)
+            product = cosine_similarity(*cartesian_product(positions, positions))
+            product = product.reshape(len(positions), len(positions))
+            self.neighbor = product.argsort(axis=1)[..., -5:-1]
+        elif grid_type == 'fib':
+            # Spherical Fibonacci grid
+            n = amount
+            golden_ratio = (1 + np.sqrt(5)) / 2
+            i = np.arange(n)
+            phi = 2 * np.pi * (i / golden_ratio % 1)
+            theta = np.arccos(1 - (2 * i + 1) / n)
+            positions = np.stack([
+                radius * np.sin(theta) * np.cos(phi),
+                radius * np.sin(theta) * np.sin(phi),
+                radius * np.cos(theta)
+            ], axis=1)
+            product = cosine_similarity(*cartesian_product(positions, positions), dim=1)
+            product = product.reshape(len(positions), len(positions))
+            self.neighbor = product.argsort(axis=1)[..., -5:-1]
+        else:
+            raise ArgumentError('Expect gird type in [sph|fib], get {} instead.'.format(grid_type))
+        for p in tqdm(positions):
+            probe = Probe(self.mesh_path, eye=p, focus=[0, 0, 0], up=[0, 0, 1], render=None)
+            label = renderer.render(probe.get_matrix(), mode='FLAT', draw_mesh=[0, 1])[..., ::-1]
+            probe.render = label
+            self.probes.append(probe)
         self.amount = len(self.probes)
         self.render_size = self.probes[0].render.shape[:-1]
+        self.grid_type = grid_type
 
     @time_it
     def visualize(self, result_dir, stitch=True, cell_width=200, gap=5):
@@ -133,6 +164,7 @@ class ProbeGroup:
                 or a probe sampled image (if not stitch)'s width is.
             gap (int): only effective if stitch is True
         """
+        # draw images rendered from probes
         params = {}
         if stitch:
             w_num = round((self.amount ** 0.5) / 10) * 10
@@ -171,8 +203,27 @@ class ProbeGroup:
                 }
                 image = cv2.resize(p.render, dsize=(cell_width, cell_width))
                 cv2.imwrite(os.path.join(result_dir, 'probe_{}.jpg'.format(i)), image)
+        # save position info
         with open(os.path.join(result_dir, 'info.json'), 'w') as f:
             json.dump(params, f, indent=4)
+        # draw sample figure
+        radius = np.linalg.norm(self.probes[0].camera_position) - 0.01
+        fig = plt.figure(figsize=(10, 10), dpi=120)
+        ax = fig.add_subplot(projection='3d')
+        ax.xaxis.set_pane_color((0, 0, 0, 0))
+        ax.yaxis.set_pane_color((0, 0, 0, 0))
+        ax.zaxis.set_pane_color((0, 0, 0, 0))
+        u = np.linspace(start=0, stop=2*np.pi, num=100)
+        v = np.linspace(start=-np.pi/2, stop=np.pi/2, num=100)
+        x = radius * np.outer(np.cos(v), np.cos(u))
+        y = radius * np.outer(np.cos(v), np.sin(u))
+        z = radius * np.outer(np.sin(v), np.ones(u.shape))
+        ax.plot_surface(x, y, z, cmap='gray')
+        probe_coords = np.asarray([p.camera_position for p in self.probes])
+        ax.scatter(probe_coords[..., 0], probe_coords[..., 1], probe_coords[..., 2], c='red', s=2)
+        ax.set_aspect('equal')
+        fig.savefig(os.path.join(result_dir, 'sample.png'), bbox_inches='tight', pad_inches=0.0)
+        plt.close()
         return
 
     @time_it
@@ -182,9 +233,11 @@ class ProbeGroup:
         """
         prepared_dict = {
             'mesh_path': self.mesh_path,
+            'grid_type': self.grid_type,
             'camera_position': np.stack([p.camera_position for p in self.probes], axis=0),
             'camera_quaternion': np.stack([p.camera_quaternion for p in self.probes], axis=0),
-            'render': np.stack([p.render for p in self.probes], axis=0)
+            'render': np.stack([p.render for p in self.probes], axis=0),
+            'neighbor': self.neighbor
         }
         np.savez_compressed(write_path, **prepared_dict)
 
@@ -204,9 +257,11 @@ class ProbeGroup:
                             camera_quaternion=camera_quaternions[i],
                             render=renders[i])
                         for i in range(self.amount)]
+        self.grid_type = str(read_dict['grid_type'])
+        self.neighbor = read_dict['neighbor']
         self.render_size = self.probes[0].render.shape[:-1]
 
-    def sparse(self, factor=2):
+    def sparse(self, factor=4):
         """
         Decrease probes by a factor (azimuth and elevation together),
         note that the factor > 1, and the final number of probes is about original / factor**2
@@ -217,12 +272,9 @@ class ProbeGroup:
         """
         if factor is None:
             return
-        ret_list = []
-        for i, p in enumerate(self.probes):
-            if (i // 17) % factor == 0 and (i % 17 % factor) == 0:
-                ret_list.append(p)
-        self.probes = ret_list
-        self.amount = len(ret_list)
+        new_amount = int(self.amount / factor)
+        radius = self.probes[0].get_radius()
+        self.generate(amount=new_amount, radius=radius, grid_type=self.grid_type)
 
 
 if __name__ == '__main__':

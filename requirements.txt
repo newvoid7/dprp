@@ -8,4 +8,5 @@ trimesh
 batchgenerators
 vtk
 SimpleITK
+tqdm
 --extra-index-url=https://pypi.tuna.tsinghua.edu.cn/simple

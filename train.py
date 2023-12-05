@@ -5,6 +5,7 @@ import numpy as np
 import torch
 from torch.nn import MSELoss
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 from network.profen import ProFEN
 from network.transform import Affine2dPredictor, Affine2dPredictorSlim, Affine2dTransformer
@@ -42,7 +43,6 @@ class BaseTrainer:
     def train_iter(self) -> float:
         pass
     
-    @time_it
     def train_epoch(self, epoch):
         epoch_losses = []
         for iter in range(self.n_iter):
@@ -75,19 +75,26 @@ class BaseTrainer:
             last_epoch = 0
             train_losses = np.zeros((0, self.n_iter))
         best_loss = np.inf
-        for epoch in range(last_epoch, self.n_epoch):
+        for epoch in tqdm(range(last_epoch, self.n_epoch)):
             epoch_losses = self.train_epoch(epoch)
             if best_loss > epoch_losses.mean():
                 torch.save(self.model.state_dict(), '{}/best.pth'.format(self.save_dir))
             train_losses = np.append(train_losses, [epoch_losses], axis=0)
             np.save('{}/loss.npy'.format(self.save_dir), train_losses)
         if self.draw_loss:
+            hor_axis = np.arange(len(train_losses))
+            average = train_losses.mean(-1)
+            std = train_losses.std(-1)
+            minus_half_std = average - std / 2
+            add_half_std = average + std / 2
             plt.figure()
-            plt.plot(np.arange(len(train_losses)), train_losses.mean(-1))
-            plt.title('{} Loss Curve'.format(self.model_name))
+            plt.plot(hor_axis, average, color='black')            
+            plt.fill_between(hor_axis, minus_half_std, add_half_std, color='lightgray', alpha=0.5)
+            plt.title('{} Loss Curve'.format(self.model_name.upper()))
             plt.xlabel('epoch')
             plt.ylabel('loss')
             plt.savefig('{}/loss.png'.format(self.save_dir))
+            plt.close()
         print('===> Training {} done.'.format(self.model_name))
         return
 
@@ -97,6 +104,7 @@ class ProfenTrainer(BaseTrainer):
         """
         Args:
             ablation (str, optional):
+                'wo_ref_loss': use original InfoNCE loss rather than RefInfoNCE
                 'wo_agent':
                 'div_4': use 1/4 of the probes
                 'div_9': use 1/9 of the probes
@@ -105,20 +113,15 @@ class ProfenTrainer(BaseTrainer):
         model = ProFEN()
         model_name = 'profen' if ablation is None else 'profen_' + ablation
         save_dir = os.path.join(paths.WEIGHTS_DIR, 'fold{}'.format(fold), model_name)
+        self.with_ref_loss = ablation != 'wo_ref_loss'
         self.with_agent = ablation != 'wo_agent'
-        self.loss_func = InfoNCELoss().cuda()
+        self.loss_func = RefInfoNCELoss().cuda() if self.with_ref_loss else InfoNCELoss().cuda()
         train_cases, _ = set_fold(fold, n_folds)
         probe_groups = [ProbeGroup(deserialize_path=os.path.join(paths.RESULTS_DIR, case_id, paths.PROBE_FILENAME))
             for case_id in train_cases]
-        if ablation == 'div_4':
+        if ablation is not None and ablation.startswith('div_'):
             for pg in probe_groups:
-                pg.sparse(2)
-        elif ablation == 'div_9':
-            for pg in probe_groups:
-                pg.sparse(3)
-        elif ablation == 'div_16':
-            for pg in probe_groups:
-                pg.sparse(4)
+                pg.sparse(factor=int(ablation[4:]))
         probes = [pg.probes for pg in probe_groups]
         self.dataloader = ProbeSingleCaseDataloader(probes=probes, batch_size=batch_size)
         self.batch_size = batch_size
@@ -133,7 +136,11 @@ class ProfenTrainer(BaseTrainer):
         render = torch.from_numpy(batch['data']).float().cuda()
         noise = self.agent.apply(render) if self.with_agent else render
         features = self.model(torch.cat([render, noise], dim=0))
-        loss = self.loss_func(features[:len(features) // 2], features[len(features) // 2:])
+        if self.with_ref_loss:
+            positions = torch.from_numpy(batch['position']).float().cuda()
+            loss = self.loss_func(features[:len(features) // 2], features[len(features) // 2:], positions)
+        else:
+            loss = self.loss_func(features[:len(features) // 2], features[len(features) // 2:])
         loss.backward()
         self.optimizer.step()
         return float(loss)
@@ -149,15 +156,9 @@ class Affine2DTrainer(BaseTrainer):
         train_cases, _ = set_fold(fold, n_folds)
         probe_groups = [ProbeGroup(deserialize_path=os.path.join(paths.RESULTS_DIR, case_id, paths.PROBE_FILENAME))
             for case_id in train_cases]
-        if ablation == 'div_4':
+        if ablation is not None and ablation.startswith('div_'):
             for pg in probe_groups:
-                pg.sparse(2)
-        elif ablation == 'div_9':
-            for pg in probe_groups:
-                pg.sparse(3)
-        elif ablation == 'div_16':
-            for pg in probe_groups:
-                pg.sparse(4)
+                pg.sparse(factor=int(ablation[4:]))
         probes = [pg.probes for pg in probe_groups]
         self.dataloader = ProbeSingleCaseDataloader(probes=probes, batch_size=batch_size)
         self.batch_size = batch_size
@@ -199,8 +200,8 @@ if __name__ == '__main__':
     os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
     if not args.ablation:
         for fold in args.folds:
-            # ProfenTrainer(fold=fold, n_folds=args.n_folds).train()
-            Affine2DTrainer(fold=fold, n_folds=args.n_folds).train()
+            ProfenTrainer(fold=fold, n_folds=args.n_folds).train()
+            # Affine2DTrainer(fold=fold, n_folds=args.n_folds).train()
     else:
         for fold in args.folds:
             ProfenTrainer(ablation='div_4', fold=fold, n_folds=args.n_folds).train()

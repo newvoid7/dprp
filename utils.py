@@ -13,8 +13,11 @@ def time_it(func):
         start = time.time()
         result = func(*args, **kwargs)
         end = time.time()
-        with open(func.__name__ + '.log', 'a') as f:
-            f.write('[{}]: {:.2f} ms.\n'.format(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()), (end - start) * 1000))
+        with open('timecost.log', 'a') as f:
+            f.write('[{} / {}]: {:.2f} ms.\n'.format(
+                func.__name__, 
+                time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()), 
+                (end - start) * 1000))
         # print('[TIMELOG] function \'{}\' cost time: {:.2f} ms.'.format(func.__name__, (end - start) * 1000))
         return result
     return wrapper
@@ -127,6 +130,16 @@ def cosine_similarity(x, y, dim=0):
     cos_angle /= (x ** 2).sum(dim) ** 0.5
     cos_angle /= (y ** 2).sum(dim) ** 0.5
     return cos_angle
+
+
+def cartesian_product(x, y):
+    """
+    Compute the cartesian prouduct of x and y. The dimensions other than 1st are all regards as elements.
+    Args:
+        x (np.ndarray): 
+        y (np.ndarray): 
+    """
+    return np.repeat(x, len(y), axis=0), np.tile(y, (len(x), 1))
 
 
 def largest_connected_area(img):

@@ -1,4 +1,5 @@
 import time
+import inspect
 
 import cv2
 import numpy as np
@@ -14,9 +15,10 @@ def time_it(func):
         result = func(*args, **kwargs)
         end = time.time()
         with open('timecost.log', 'a') as f:
-            f.write('[{} / {}]: {:.2f} ms.\n'.format(
-                func.__name__, 
+            f.write('[{} {}>{}]: {:.2f} ms.\n'.format(
                 time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()), 
+                inspect.getfile(func),
+                func.__name__, 
                 (end - start) * 1000))
         # print('[TIMELOG] function \'{}\' cost time: {:.2f} ms.'.format(func.__name__, (end - start) * 1000))
         return result

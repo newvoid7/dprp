@@ -17,6 +17,7 @@ import paths
 DEFAULT_ORIENTATION = [0, 0, -1]
 DEFAULT_UP = [0, 1, 0]
 
+os.environ['PYOPENGL_PLATFORM'] = 'egl'
 
 class Probe:
     """

@@ -62,7 +62,7 @@ class ProbeSingleCaseDataloader(SlimDataLoaderBase):
                 if len(probes) == 0:
                     same_side = True
                 else:
-                    same_side = all([cosine_similarity(this.camera_position, e.camera_position) > -0.2
+                    same_side = all([cosine_similarity(this.get_eye(), e.get_eye()) >= 0
                                      for e in probes])
             probes.append(this)
         data = {

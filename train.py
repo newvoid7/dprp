@@ -20,7 +20,7 @@ from dataloaders import set_fold
 
 class BaseTrainer:
     def __init__(self, model_name, model, save_dir, 
-                 draw_loss=True, save_cycle=0, n_epoch=300, n_iter=None):
+                 draw_loss=True, save_cycle=0, n_epoch=1000, n_iter=None):
         """
         Args:
             model_name (str): 
@@ -200,7 +200,7 @@ if __name__ == '__main__':
     os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
     if not args.ablation:
         for fold in args.folds:
-            ProfenTrainer(fold=fold, n_folds=args.n_folds).train()
+            ProfenTrainer(fold=fold, n_folds=args.n_folds).train(resume=True)
             # Affine2DTrainer(fold=fold, n_folds=args.n_folds).train()
     else:
         for fold in args.folds:

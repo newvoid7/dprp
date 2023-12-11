@@ -240,7 +240,7 @@ def test(fold=0, n_fold=6, ablation=None):
             orig_seg_2ch = make_channels(orig_segment.transpose((2, 0, 1)), [
                 lambda x: x[2] != 0, lambda x: x[1] != 0
             ])
-            frame_info = fuser.process_frame(photo, orig_seg_2ch, ablation=ablation)
+            frame_info = fuser.process_frame(photo, orig_seg_2ch)
             cv2.imwrite('{}/{}'.format(fusion_dir, case_dataloader.fns[i]), frame_info['fusion'])
             transformed_2ch = frame_info['transformed']
             if isinstance(transformed_2ch, torch.Tensor):

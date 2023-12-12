@@ -20,7 +20,7 @@ from dataloaders import set_fold
 
 class BaseTrainer:
     def __init__(self, model_name, model, save_dir, 
-                 draw_loss=True, save_cycle=0, n_epoch=1000, n_iter=None):
+                 draw_loss=True, save_cycle=0, n_epoch=300, n_iter=None):
         """
         Args:
             model_name (str): 
@@ -187,27 +187,26 @@ class Affine2DTrainer(BaseTrainer):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Training parameters')
-    parser.add_argument('--gpu', type=int, default=0, required=False, 
+    parser.add_argument('-g', '--gpu', type=int, default=0, required=False, 
                         help='train on which gpu')
-    parser.add_argument('--folds', type=int, nargs='+', default=[0, 1, 2, 3], required=False, 
+    parser.add_argument('-f', '--folds', type=int, nargs='+', default=[0, 1, 2, 3], required=False, 
                         help='which folds should be trained, e.g. --folds 0 2 4')
-    parser.add_argument('--n_folds', type=int, default=4, required=False, 
+    parser.add_argument('-nf', '--n_folds', type=int, default=4, required=False, 
                         help='how many folds in total')
-    parser.add_argument('--ablation', action='store_true', default=False, required=False, 
+    parser.add_argument('-a', '--ablation', action='store_true', default=False, required=False, 
                         help='whether do the ablation')
+    parser.add_argument('-r', '--resume', action='store_true', default=False, require=False,
+                        help='whether resume from the last training process')
+    parser.add_argument('-ne', '--n_epoch', type=int, default=300, required=False,
+                        help='number of training epoches')
     args = parser.parse_args()
     
     os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
     if not args.ablation:
         for fold in args.folds:
-            ProfenTrainer(fold=fold, n_folds=args.n_folds).train(resume=True)
-            # Affine2DTrainer(fold=fold, n_folds=args.n_folds).train()
+            ProfenTrainer(fold=fold, n_folds=args.n_folds, n_epoch=args.n_epoch).train(resume=args.resume)
     else:
         for fold in args.folds:
-            ProfenTrainer(ablation='div_4', fold=fold, n_folds=args.n_folds).train()
-            ProfenTrainer(ablation='div_9', fold=fold, n_folds=args.n_folds).train()
-            ProfenTrainer(ablation='div_16', fold=fold, n_folds=args.n_folds).train()
-            ProfenTrainer(ablation='wo_agent', fold=fold, n_folds=args.n_folds).train()
-            # Affine2DTrainer(ablation='div_4', fold=fold, n_folds=args.n_folds).train()
-            # Affine2DTrainer(ablation='div_9', fold=fold, n_folds=args.n_folds).train()
-            # Affine2DTrainer(ablation='div_16', fold=fold, n_folds=args.n_folds).train()
+            ablations_need_training = ['div_4', 'div_9', 'div_16', 'wo_ref_loss', 'wo_agent']
+            for abl in ablations_need_training:
+                ProfenTrainer(ablation=abl, fold=fold, n_folds=args.n_folds, n_epoch=args.n_epoch).train(resume=args.resume)

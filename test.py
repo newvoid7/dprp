@@ -14,7 +14,7 @@ from utils import make_channels, cosine_similarity
 from fusion import restrictions
 
 
-def test_profen(fold=0, n_fold=6, ablation=None):
+def test_profen(fold=0, n_fold=4, ablation=None):
     """ Simulate the intraoperative images with Probe generated images.
     Args:
         fold (int, optional): _description_. Defaults to 0.
@@ -103,16 +103,11 @@ def test_profen(fold=0, n_fold=6, ablation=None):
 
 if __name__ == '__main__':
     os.environ['CUDA_VISIBLE_DEVICES'] = '1'
-    ablations = ['div_4', 'div_9', 'div_16', 'wo_ref_loss', 'wo_pps', 'wo_agent']
+    # ablations = ['div_4', 'div_9', 'div_16', 'wo_ref_loss', 'wo_pps', 'wo_agent']
+    ablations = []
     loss = []
-    loss_abl = {
-        'div_4': [],
-        'div_9': [],
-        'div_16': [],
-        'wo_pps': [],
-        'wo_agent': []
-    }
-    for fold in range(6):
+    loss_abl = {k: [] for k in ablations}
+    for fold in range(4):
         loss += test_profen(fold)
         for k, v in loss_abl.items():
             v += test_profen(fold, ablation=k)

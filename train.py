@@ -195,7 +195,7 @@ if __name__ == '__main__':
                         help='how many folds in total')
     parser.add_argument('-a', '--ablation', action='store_true', default=False, required=False, 
                         help='whether do the ablation')
-    parser.add_argument('-r', '--resume', action='store_true', default=False, require=False,
+    parser.add_argument('-r', '--resume', action='store_true', default=False, required=False,
                         help='whether resume from the last training process')
     parser.add_argument('-ne', '--n_epoch', type=int, default=300, required=False,
                         help='number of training epoches')

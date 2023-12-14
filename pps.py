@@ -15,12 +15,12 @@ class PPS:
         self.sim_func = CosineSimilarity().cuda()
         self.mask = mask
         
-    def best(self, target, with_neighbor=True, alpha=0.5, beta=0.5):
+    def best(self, target, with_neighbor=True, alpha=0.5):
         similarity = self.sim_func(target, self.features)
         if with_neighbor:
             neighbors = similarity[np.asarray(self.probe_group.neighbor)]
             neighbors = neighbors.mean(-1)
-            similarity = alpha * similarity + beta * neighbors
+            similarity = alpha * similarity + (1 - alpha) * neighbors
         if self.mask is not None:
             # similarity - min() to keep minimum = 0, then set elements out of mask to 0 too
             similarity = self.mask * (similarity - similarity.min())

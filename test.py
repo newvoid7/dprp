@@ -10,10 +10,11 @@ from dataloaders import set_fold, TestSingleCaseDataloader
 import paths
 from probe import ProbeGroup
 from agent import AgentTask
-from utils import make_channels, cosine_similarity
+from utils import make_channels, cosine_similarity, time_it
 from fusion import restrictions
 
 
+@time_it
 def test_profen(fold=0, n_fold=4, ablation=None):
     """ Simulate the intraoperative images with Probe generated images.
     Args:
@@ -95,7 +96,6 @@ def test_profen(fold=0, n_fold=4, ablation=None):
                 pred.append(probes[hit_index].get_orientation())
             pred = np.stack(pred, axis=0)
             loss = cosine_similarity(target, pred, dim=1).mean()
-            loss = 0.5 - loss / 2
             case_loss.append(loss)
         test_loss.append(case_loss)
     return test_loss

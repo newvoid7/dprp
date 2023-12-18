@@ -199,14 +199,13 @@ if __name__ == '__main__':
                         help='whether resume from the last training process')
     parser.add_argument('-ne', '--n_epoch', type=int, default=300, required=False,
                         help='number of training epoches')
+    parser.add_argument('-s', '--save_cycle', type=int, default=0, required=False,
+                        help='save weight every s epoches')
     args = parser.parse_args()
     
     os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
-    if not args.ablation:
+    ablations_need_training = ['div_4', 'div_9', 'div_16', 'wo_ref_loss', 'wo_agent'] if args.ablation else [None]
+    for abl in ablations_need_training:
         for fold in args.folds:
-            ProfenTrainer(fold=fold, n_folds=args.n_folds, n_epoch=args.n_epoch).train(resume=args.resume)
-    else:
-        for fold in args.folds:
-            ablations_need_training = ['div_4', 'div_9', 'div_16', 'wo_ref_loss', 'wo_agent']
-            for abl in ablations_need_training:
-                ProfenTrainer(ablation=abl, fold=fold, n_folds=args.n_folds, n_epoch=args.n_epoch).train(resume=args.resume)
+            ProfenTrainer(ablation=abl, fold=fold, n_folds=args.n_folds, 
+                          save_cycle=args.save_cycle, n_epoch=args.n_epoch).train(resume=args.resume)

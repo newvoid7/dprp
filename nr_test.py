@@ -103,7 +103,7 @@ if __name__ == '__main__':
             optimizer = torch.optim.Adam(solver.parameters(), lr=0.1)
             loss = None
             start = time.time()
-            for i in range(50):
+            for i in range(20):
                 optimizer.zero_grad()
                 loss = solver()
                 loss.backward()

@@ -1,5 +1,6 @@
 import os
 import random
+import time
 
 import torch
 from torch.nn import CosineSimilarity
@@ -10,9 +11,10 @@ from dataloaders import set_fold, TestSingleCaseDataloader
 import paths
 from probe import ProbeGroup
 from agent import AgentTask
-from utils import make_channels, cosine_similarity, time_it
+from utils import make_channels, cosine_similarity, time_it, make_colorful
 from fusion import restrictions
 
+time_cost = []
 
 @time_it
 def test_profen(fold=0, n_fold=4, ablation=None):
@@ -74,6 +76,7 @@ def test_profen(fold=0, n_fold=4, ablation=None):
         # test
         ts = 100                # test how many times
         bs = 16                 # batch size
+        start_time = time.time()
         for i in range(ts):
             input = []
             target = []
@@ -98,12 +101,14 @@ def test_profen(fold=0, n_fold=4, ablation=None):
             loss = cosine_similarity(target, pred, dim=1).mean()
             case_loss.append(loss)
         test_loss.append(case_loss)
+        end_time = time.time()
+        time_cost.append(end_time - start_time)
     return test_loss
 
 
 if __name__ == '__main__':
     os.environ['CUDA_VISIBLE_DEVICES'] = '1'
-    # ablations = ['div_4', 'div_9', 'div_16', 'wo_ref_loss', 'wo_pps', 'wo_agent']
+    ablations = ['div_4', 'div_9', 'div_16', 'wo_pps', 'wo_agent']
     ablations = []
     loss = []
     loss_abl = {k: [] for k in ablations}
@@ -114,4 +119,5 @@ if __name__ == '__main__':
     loss = np.asarray([np.asarray(l).mean() for l in loss])
     for k, v in loss_abl.items():
         loss_abl[k] = np.asarray([np.asarray(l).mean() for l in v])
+    time_cost = np.asarray(time_cost)
     print('OK')

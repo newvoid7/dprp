@@ -6,6 +6,7 @@ import numpy as np
 import torch
 import cv2
 import SimpleITK as sitk
+from tqdm import tqdm
 
 import paths
 from network.profen import ProFEN
@@ -183,9 +184,12 @@ def evaluate(prediction, label):
     return ret_dict
 
 
-def test(fold=0, n_fold=6, ablation=None):
+def test(fold=0, n_fold=4, ablation=None, validation=False):
     base_dir = paths.DATASET_DIR
-    _, test_cases = set_fold(fold, n_fold)
+    if validation:
+        test_cases, _ = set_fold(fold, n_fold)
+    else:
+        _, test_cases = set_fold(fold, n_fold)
     for case_id in test_cases:
         # directories and dataloader
         case_dir = os.path.join(base_dir, case_id)
@@ -232,7 +236,7 @@ def test(fold=0, n_fold=6, ablation=None):
         )
 
         evaluations = {}
-        for i in range(case_dataloader.length()):
+        for i in tqdm(range(case_dataloader.length())):
             photo = case_dataloader.images[i]
             orig_segment = case_dataloader.labels[i]
             if orig_segment is None:                        # some frames do not have segmented labels
@@ -251,7 +255,7 @@ def test(fold=0, n_fold=6, ablation=None):
             ])                                               # transformed has some other colors
             metrics = evaluate(transformed_2ch, orig_seg_2ch)
             evaluations[case_dataloader.fns[i]] = metrics
-            print('Case: {} Frame: {} is OK.'.format(case_id, case_dataloader.fns[i]))
+            # print('Case: {} Frame: {} is OK.'.format(case_id, case_dataloader.fns[i]))
         evaluations['average'] = {
             channel: {
                 metric: np.asarray([case_value[channel][metric] for case_value in evaluations.values()]).mean()
@@ -267,9 +271,26 @@ def test(fold=0, n_fold=6, ablation=None):
     print('Fold {} all OK'.format(fold))
 
 
+def statistic(fold=0, n_fold=4, validation=False):
+    if validation:
+        target_cases, _ = set_fold(fold, n_fold)
+    else:
+        _, target_cases = set_fold(fold, n_fold)
+    json_paths = [os.path.join(paths.RESULTS_DIR, c, 'metrics.json') for c in target_cases]
+    jsons = [json.load(open(p)) for p in json_paths]
+    dices = np.asarray([j['average']['channel 0']['dice'] for j in jsons])
+    avds = np.asarray([j['average']['channel 0']['avd'] for j in jsons])
+    return {
+        'dice mean': dices.mean(), 
+        'dice std': dices.std(), 
+        'avd mean': avds.mean(), 
+        'avd std': avds.std()
+    }
+    
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Fusion settings')
-    parser.add_argument('--gpu', type=int, default=3, required=False, help='do inference on which gpu')
+    parser.add_argument('--gpu', type=int, default=0, required=False, help='do inference on which gpu')
     parser.add_argument('--folds', type=int, nargs='+', default=[0, 1, 2, 3], required=False, 
                         help='which folds should be trained, e.g. --folds 0 2 4')
     parser.add_argument('--n_folds', type=int, default=4, required=False, 
@@ -281,13 +302,8 @@ if __name__ == '__main__':
     os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
     os.environ['PYOPENGL_PLATFORM'] = 'egl'
 
-    if not args.ablation:
+    ablations = ['div_4', 'div_9', 'div_16', 'wo_ref_loss', 'wo_agent'] if args.ablation else [None]
+    for abl in ablations:
         for fold in args.folds:
-            test(fold, args.n_folds)
-    else:
-        for fold in args.folds:
-            test(fold, args.n_folds, ablation='div_4')
-            test(fold, args.n_folds, ablation='div_9')
-            test(fold, args.n_folds, ablation='div_16')
-            test(fold, args.n_folds, ablation='wo_agent')
-            test(fold, args.n_folds, ablation='wo_pps')
+            test(fold=fold, n_fold=args.n_folds, ablation=abl, validation=False)
+            print(statistic(fold=fold, n_fold=args.n_folds, validation=False))

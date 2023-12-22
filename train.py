@@ -195,17 +195,22 @@ if __name__ == '__main__':
                         help='how many folds in total')
     parser.add_argument('-a', '--ablations', type=str, nargs='+', 
                         default=['none', 'div_4', 'div_9', 'div_16', 'wo_ref_loss', 'wo_agent'], required=False, 
-                        help='whether do the ablation')
+                        help='which ablations to train, choices: none, div_4, div_9, div_16, wo_ref_loss, wo_agent')
     parser.add_argument('-r', '--resume', action='store_true', default=False, required=False,
                         help='whether resume from the last training process')
     parser.add_argument('-ne', '--n_epoch', type=int, default=300, required=False,
                         help='number of training epoches')
     parser.add_argument('-s', '--save_cycle', type=int, default=0, required=False,
                         help='save weight every s epoches')
+    parser.add_argument('-n', '--network', type=str, nargs='+', default=['profen', 'affine'], required=False,
+                        help='train which network, choices: affine, profen')
     args = parser.parse_args()
     
     os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
-    for abl in args.ablations:
-        for fold in args.folds:
-            ProfenTrainer(ablation=abl if abl != 'none' else None, fold=fold, n_folds=args.n_folds, 
-                          save_cycle=args.save_cycle, n_epoch=args.n_epoch).train(resume=args.resume)
+    if 'affine' in args.network:
+        Affine2DTrainer(fold=-1, save_cycle=args.save_cycle, n_epoch=args.n_epoch).train(resume=args.resume)
+    if 'profen' in args.network:
+        for abl in args.ablations:
+            for fold in args.folds:
+                ProfenTrainer(ablation=abl if abl != 'none' else None, fold=fold, n_folds=args.n_folds, 
+                            save_cycle=args.save_cycle, n_epoch=args.n_epoch).train(resume=args.resume)

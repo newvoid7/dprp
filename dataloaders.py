@@ -11,7 +11,7 @@ import paths
 
                 
 def set_fold(fold, num_all_folds):
-    if fold == -1:
+    if fold == -1:      # train with all cases
         return paths.ALL_CASES, []
     num_all_cases = len(paths.ALL_CASES)
     if num_all_cases % num_all_folds != 0:

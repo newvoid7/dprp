@@ -236,7 +236,7 @@ def test(fold=0, n_fold=4, ablation=None, validation=False):
         )
 
         evaluations = {}
-        for i in tqdm(range(case_dataloader.length())):
+        for i in tqdm(iterable=range(case_dataloader.length()), desc='Fusion of case {}'.format(case_id)):
             photo = case_dataloader.images[i]
             orig_segment = case_dataloader.labels[i]
             if orig_segment is None:                        # some frames do not have segmented labels
@@ -266,7 +266,6 @@ def test(fold=0, n_fold=4, ablation=None, validation=False):
             json.dump(evaluations, f, indent=4)
         # explicitly delete registrator, release renderer in time, avoid GL errors
         del fuser
-        print('Case {} is OK.'.format(case_id))
 
     print('Fold {} all OK'.format(fold))
 
@@ -290,20 +289,20 @@ def statistic(fold=0, n_fold=4, validation=False):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Fusion settings')
-    parser.add_argument('--gpu', type=int, default=0, required=False, help='do inference on which gpu')
-    parser.add_argument('--folds', type=int, nargs='+', default=[0, 1, 2, 3], required=False, 
+    parser.add_argument('-g', '--gpu', type=int, default=0, required=False, help='do inference on which gpu')
+    parser.add_argument('-f', '--folds', type=int, nargs='+', default=[0, 1, 2, 3], required=False, 
                         help='which folds should be trained, e.g. --folds 0 2 4')
-    parser.add_argument('--n_folds', type=int, default=4, required=False, 
+    parser.add_argument('-nf', '--n_folds', type=int, default=4, required=False, 
                         help='how many folds in total')
-    parser.add_argument('--ablation', action='store_true', default=False, required=False, 
+    parser.add_argument('-a', '--ablations', type=str, nargs='+', 
+                        default=['none', 'div_4', 'div_9', 'div_16', 'wo_pps', 'wo_agent'], required=False, 
                         help='whether do the ablation')
     args = parser.parse_args()
     
     os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
     os.environ['PYOPENGL_PLATFORM'] = 'egl'
-
-    ablations = ['div_4', 'div_9', 'div_16', 'wo_ref_loss', 'wo_agent'] if args.ablation else [None]
-    for abl in ablations:
+    
+    for abl in args.ablations:
         for fold in args.folds:
-            test(fold=fold, n_fold=args.n_folds, ablation=abl, validation=False)
+            test(fold=fold, n_fold=args.n_folds, ablation=abl if abl != 'none' else None, validation=False)
             print(statistic(fold=fold, n_fold=args.n_folds, validation=False))

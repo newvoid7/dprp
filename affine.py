@@ -118,11 +118,14 @@ class GeometryAffineSolver(BaseAffineSolver):
         return centerh, centerw
     
     def solve(self, src: np.ndarray, dst: np.ndarray):
-        center0_h, center0_w = self.centroid(src.sum(0))
-        center1_h, center1_w = self.centroid(dst.sum(0))
-        tx = center1_w - center0_w
-        ty = center1_h - center0_h
-        # use tumor channel to compute scale, sometimes tumor is complete and kidney is not
+        centerh_src_0, centerw_src_0 = self.centroid(src[0])
+        centerh_src_1, centerw_src_1 = self.centroid(src[1])
+        centerh_dst_0, centerw_dst_0 = self.centroid(dst[0])
+        centerh_dst_1, centerw_dst_1 = self.centroid(dst[1])
+        centerh_src, centerw_src = self.centroid(src.sum(0))
+        centerh_dst, centerw_dst = self.centroid(dst.sum(0))
+        tx = (centerw_dst_0 - centerw_src_0 + centerw_dst_1 - centerw_src_1) / 2
+        ty = (centerh_dst_0 - centerh_src_0 + centerh_dst_1 - centerh_src_1) / 2
         scale = (dst.sum() / src.sum()) ** 0.5
         inv_s = 1.0 / scale
         rot_batch = torch.arange(0, 360, 1, dtype=torch.float32, device='cuda') / 180 * torch.pi

@@ -143,7 +143,7 @@ class ProbeGroup:
             self.neighbor = product.argsort(axis=1)[..., -5:-1]
         else:
             raise ArgumentError('Expect gird type in [sph|fib], get {} instead.'.format(grid_type))
-        for p in tqdm(positions):
+        for p in tqdm(iterable=positions, desc='Generating probes'):
             probe = Probe(self.mesh_path, eye=p, focus=[0, 0, 0], up=[0, 0, 1], render=None)
             label = renderer.render(probe.get_matrix(), mode='FLAT', draw_mesh=[0, 1])[..., ::-1]
             probe.render = label

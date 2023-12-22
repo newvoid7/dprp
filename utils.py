@@ -202,6 +202,7 @@ def images_alpha_lighten(under, upper, alpha):
         np.ndarray:
     """
     if isinstance(under, np.ndarray) and isinstance(upper, np.ndarray):
+        upper *= 255 / upper.max()
         under_t = under.transpose((2, 0, 1))
         upper_t = upper.transpose((2, 0, 1))
         blended = alpha * upper_t + (1 - alpha) * under_t
@@ -209,6 +210,7 @@ def images_alpha_lighten(under, upper, alpha):
         out = brighter * blended + (1 - brighter) * under_t
         out = out.transpose((1, 2, 0))
     elif isinstance(under, torch.Tensor) and isinstance(upper, torch.Tensor):
+        upper /= upper.max()
         blended = alpha * upper + (1 - alpha) * under
         brighter = upper.sum(0) > 0.01
         out = brighter * blended + (~brighter) * under

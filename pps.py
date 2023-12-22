@@ -35,5 +35,5 @@ class PPS:
         if self.mask is not None:
             # similarity - min() to keep minimum = 0, then set elements out of mask to 0 too
             similarity = self.mask * (similarity - similarity.min())
-            hit_index = similarity.argmax()
+        hit_index = similarity.argmax()
         return hit_index

@@ -2,8 +2,6 @@ import torch
 import torch.nn as nn
 from torchvision import models
 
-from utils import time_it
-
 class ProFEN(nn.Module):
     def __init__(self, n_channels=2, out_features=2048):
         super(ProFEN, self).__init__()
@@ -12,7 +10,6 @@ class ProFEN(nn.Module):
         self.encoder = models.resnet18(weights=models.resnet.ResNet18_Weights.IMAGENET1K_V1)
         self.mlp = nn.Linear(512, out_features)
 
-    @time_it
     def forward(self, _in):
         x = self.first(_in)
         x = self.encoder.relu(self.encoder.bn1(x))

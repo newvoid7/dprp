@@ -11,6 +11,8 @@ import paths
 
                 
 def set_fold(fold, num_all_folds):
+    if fold == -1:
+        return paths.ALL_CASES, []
     num_all_cases = len(paths.ALL_CASES)
     if num_all_cases % num_all_folds != 0:
         raise Warning('The number of cases ({}) could not be divided into {} folds.'

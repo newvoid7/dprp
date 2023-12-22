@@ -75,7 +75,7 @@ class BaseTrainer:
             last_epoch = 0
             train_losses = np.zeros((0, self.n_iter))
         best_loss = np.inf
-        for epoch in tqdm(range(last_epoch, self.n_epoch)):
+        for epoch in tqdm(iterable=range(last_epoch, self.n_epoch), desc='Training epoch'):
             epoch_losses = self.train_epoch(epoch)
             if best_loss > epoch_losses.mean():
                 torch.save(self.model.state_dict(), '{}/best.pth'.format(self.save_dir))
@@ -193,7 +193,8 @@ if __name__ == '__main__':
                         help='which folds should be trained, e.g. --folds 0 2 4')
     parser.add_argument('-nf', '--n_folds', type=int, default=4, required=False, 
                         help='how many folds in total')
-    parser.add_argument('-a', '--ablation', action='store_true', default=False, required=False, 
+    parser.add_argument('-a', '--ablations', type=str, nargs='+', 
+                        default=['none', 'div_4', 'div_9', 'div_16', 'wo_ref_loss', 'wo_agent'], required=False, 
                         help='whether do the ablation')
     parser.add_argument('-r', '--resume', action='store_true', default=False, required=False,
                         help='whether resume from the last training process')
@@ -204,8 +205,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     
     os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
-    ablations_need_training = ['div_4', 'div_9', 'div_16', 'wo_ref_loss', 'wo_agent'] if args.ablation else [None]
-    for abl in ablations_need_training:
+    for abl in args.ablations:
         for fold in args.folds:
-            ProfenTrainer(ablation=abl, fold=fold, n_folds=args.n_folds, 
+            ProfenTrainer(ablation=abl if abl != 'none' else None, fold=fold, n_folds=args.n_folds, 
                           save_cycle=args.save_cycle, n_epoch=args.n_epoch).train(resume=args.resume)

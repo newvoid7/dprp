@@ -75,7 +75,7 @@ class PRRenderer:
         """
         Output the np.ndarray (H, W, 3) which is ready for cv2 to write.
         Args:
-            mat (np.ndarray): shape of (4, 4), dtype=float.
+            mat (np.ndarray): set the camera shape of (4, 4), dtype=float.
             draw_mesh (list of int): indicate which parts will be drawn, 
                 0: kidney,
                 1: tumor,

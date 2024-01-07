@@ -5,9 +5,10 @@ from batchgenerators.dataloading.data_loader import SlimDataLoaderBase
 import numpy as np
 import cv2
 
-from utils import cosine_similarity, make_channels
-from probe import Probe
+from utils import cosine_similarity, make_channels, normalize_vec
+from probe import Probe, DEFAULT_UP
 import paths
+from render import PRRenderer
 
                 
 def set_fold(fold, num_all_folds):
@@ -99,6 +100,41 @@ class TestSingleCaseDataloader:
     
     def length(self):
         return len(self.images)
+    
+
+class SimulateDataloader:
+    def __init__(self, case_dir) -> None:
+        prior_info_path = os.path.join(case_dir, paths.PRIOR_INFO_FILENAME)
+        if os.path.exists(prior_info_path):
+            with open(prior_info_path) as f:
+                self.prior_info = json.load(f)
+        else:
+            self.prior_info = None
+        self.renderer = PRRenderer(os.path.join(case_dir, paths.MESH_FILENAME))
+        self.radius_range = (1.2, 3.6)
+        self.focus_deviation = 0.1
+        
+    def get_image(self):
+        radius = np.random.randn()
+        azimuth = np.random.rand() * 2.0 * np.pi
+        zenith = np.random.rand() * np.pi
+        eye = np.asarray([
+            radius * np.sin(zenith) * np.cos(azimuth),
+            radius * np.sin(zenith) * np.sin(azimuth),
+            radius * np.cos(zenith)
+        ])
+        focus = (np.random.rand(3) - 0.5) * 2.0 * self.focus_deviation
+        direction = normalize_vec(focus - eye)
+        roll = np.random.rand() * 2.0 * np.pi
+        right = normalize_vec(np.cross(direction, DEFAULT_UP))
+        up = normalize_vec(np.cross(right, direction))
+        up = np.cos(roll) * up + np.sin(roll) * right
+        probe = Probe(None, eye=eye, focus=focus, up=up)
+        label = self.renderer.render(probe.get_matrix(), mode='FLAT', draw_mesh=[0, 1])[..., ::-1]
+        return label, direction, azimuth, zenith
+    
+    def __del__(self):
+        del self.renderer
 
 
 if __name__ == '__main__':

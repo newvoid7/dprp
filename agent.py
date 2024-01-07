@@ -18,7 +18,7 @@ class AgentTask:
         self.occlusions = [cv2.imread(p, cv2.IMREAD_GRAYSCALE) for p in occlusion_paths]
         self.occlusions = [crop_and_resize_square(o, out_size=512) for o in self.occlusions]
         self.occlusions = [cv2_to_tensor(o) for o in self.occlusions]
-        self.transformer = Affine2dTransformer()
+        # self.transformer = Affine2dTransformer()
         self.real_params = None
 
     def apply(self, i):
@@ -31,23 +31,23 @@ class AgentTask:
         Returns:
             torch.Tensor: shape of (B, C, H, W)
         """
+        transform = transforms.Compose([
+            transforms.RandomRotation(degrees=40, interpolation=transforms.InterpolationMode.NEAREST),
+            # for RandomResizedCrop, the scale is based on area
+            transforms.RandomResizedCrop(size=512, scale=(0.2, 1.1), ratio=(1.0, 1.0),
+                                         interpolation=transforms.InterpolationMode.NEAREST)
+        ])
+        i = transform(i)
         # deprecated
-        # transform = transforms.Compose([
-        #     transforms.RandomRotation(degrees=40, interpolation=transforms.InterpolationMode.NEAREST),
-        #     # for RandomResizedCrop, the scale is based on area
-        #     transforms.RandomResizedCrop(size=512, scale=(0.2, 1.1), ratio=(1.0, 1.0),
-        #                                  interpolation=transforms.InterpolationMode.NEAREST)
-        # ])
-        # i = transform(i)
-        params = torch.rand((i.size(0), 4)).to(i.device)
-        # tx, ty: -0.5 ~ 0.5 -> 0.25 ~ 0.75
-        params[:, 0: 2] = params[:, 0: 2] * 0.5 + 0.25
-        # rot: -pi/3 ~ pi/3 -> 1/3 ~ 2/3
-        params[:, 2] = params[:, 2] * (1 / 3.0) + (1 / 3.0)
-        # scale: 8/9 ~ 5 -> 0.46 ~ 1
-        params[:, 3] = params[:, 3] * 0.54 + 0.46
-        self.real_params = params
-        i = self.transformer(i, params)
+        # params = torch.rand((i.size(0), 4)).to(i.device)
+        # # tx, ty: -0.5 ~ 0.5 -> 0.25 ~ 0.75
+        # params[:, 0: 2] = params[:, 0: 2] * 0.5 + 0.25
+        # # rot: -pi/3 ~ pi/3 -> 1/3 ~ 2/3
+        # params[:, 2] = params[:, 2] * (1 / 3.0) + (1 / 3.0)
+        # # scale: 8/9 ~ 5 -> 0.46 ~ 1
+        # params[:, 3] = params[:, 3] * 0.54 + 0.46
+        # self.real_params = params
+        # i = self.transformer(i, params)
         hw = i.size()[-2:]
         mask = torch.ones(hw)
         for occ in self.occlusions:

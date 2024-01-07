@@ -1,3 +1,4 @@
+from ctypes import ArgumentError
 import time
 import inspect
 
@@ -215,6 +216,12 @@ def images_alpha_lighten(under, upper, alpha):
         brighter = upper.sum(0) > 0.01
         out = brighter * blended + (~brighter) * under
     return out
+
+
+def normalize_vec(v: np.ndarray):
+    if len(v.shape) != 1:
+        raise ArgumentError('Can not normalize a non-vector!')
+    return v / np.linalg.norm(v)
 
 
 def quaternion_from_view_up(orig_view, orig_up, new_view, new_up):

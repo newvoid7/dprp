@@ -25,32 +25,32 @@ restrictions = {
     'type1': {
         'description': 'The renal main axis is z=y, the renal hilum is face to (-1, -1, 0).',
         'azimuth': lambda x: (45 <= x) & (x <= 135),
-        'elevation': lambda x: (-60 <= x) & (x <= 0)
+        'zenith': lambda x: (90 <= x) & (x <= 150)
     },
     'type2': {
         'description': 'The renal main axis is z=-x, the renal hilum is face to (-1, -1, -1).',
         'azimuth': lambda x: (90 <= x) & (x <= 180),
-        'elevation': lambda x: (-60 <= x) & (x <= 0)
+        'zenith': lambda x: (90 <= x) & (x <= 150)
     },
     'type3': {
         'description': 'The renal main axis is z=y, the renal hilum is face to (1, -1, 0).',
         'azimuth': lambda x: (45 <= x) & (x <= 135),
-        'elevation': lambda x: (-45 <= x) & (x <= 15)
+        'zenith': lambda x: (75 <= x) & (x <= 135)
     },
     'type4': {
         'description': 'The renal main axis is z=y, the renal hilum is face to (1, -1, 0).',
-        'azimuth': lambda x: (135 <= x) & (x <= 180) | (-180 < x) & (x <= -135),
-        'elevation': lambda x: (-60 <= x) & (x <= 30)
+        'azimuth': lambda x: (135 <= x) & (x <= 225),
+        'zenith': lambda x: (60 <= x) & (x <= 150)
     },
     'type5': {
         'description': 'The renal main axis is z=y, the renal hilum is face to (1, -1, 0).',
-        'azimuth': lambda x: (-45 <= x) & (x <= 60),
-        'elevation': lambda x: (-60 <= x) & (x <= 0)
+        'azimuth': lambda x: (x <= 60) | (225 <= x),
+        'zenith': lambda x: (90 <= x) & (x <= 150)
     },
     'type6' :{
         'destription': 'The renal main axis is z=x, the renal hilum is face to (1, -1, 1).',
         'azimuth': lambda x: (90 <= x) & (x <= 180),
-        'elevation': lambda x: (-45 <= x) & (x <= 45)
+        'zenith': lambda x: (45 <= x) & (x <= 135)
     }
 }
 
@@ -79,7 +79,7 @@ class Fuser:
         # (Np,)
         self.probe_azimuth = np.asarray([p.get_spcoord_dict()['azimuth'] for p in probes])
         # (Np,)
-        self.probe_elevation = np.asarray([p.get_spcoord_dict()['elevation'] for p in probes])
+        self.probe_zenith = np.asarray([p.get_spcoord_dict()['zenith'] for p in probes])
         # (Np, 2, H, W)
         self.rendered_2ch_pool = np.asarray([make_channels(p.render.transpose((2, 0, 1)),
                                                             [lambda x: x[0] != 0, lambda x: (x[0] == 0) & (x.any(0))])
@@ -99,7 +99,7 @@ class Fuser:
         # PPS
         if with_pps:
             restriction = restrictions[case_type]
-            pps_filtered = restriction['azimuth'](self.probe_azimuth) & restriction['elevation'](self.probe_elevation)
+            pps_filtered = restriction['azimuth'](self.probe_azimuth) & restriction['zenith'](self.probe_zenith)
             pps_filtered = torch.from_numpy(pps_filtered).cuda()
             self.pps = PPS(probe_group, self.feature_pool, pps_filtered)
         else:

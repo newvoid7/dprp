@@ -69,11 +69,12 @@ class Probe:
         Returns:
             dict: including 3 items specifying radius, azimuth and elevation
         """
+        radius = np.linalg.norm(self.camera_position)
         return {
             # azimuth in (-180, 180] degrees, elevation in [-90, 90] degrees.
-            'radius': np.linalg.norm(self.camera_position),
+            'radius': radius,
             'azimuth': np.arctan2(self.camera_position[1], self.camera_position[0]) / np.pi * 180,
-            'elevation': np.arcsin(self.camera_position[2] / np.linalg.norm(self.camera_position)) / np.pi * 180
+            'zenith': np.arccos(self.camera_position[2] / radius) / np.pi * 180
         }
 
     def get_matrix(self):

@@ -72,7 +72,7 @@ class ProbeSingleCaseDataloader(SlimDataLoaderBase):
             'data': np.asarray([make_channels(p.render.transpose((2, 0, 1)), [
                     lambda x: x[0] != 0,
                     lambda x: (x[0] == 0) & (x.any(0))]) for p in probes]),
-            'position': np.asarray([p.camera_position for p in probes])
+            'position': np.asarray([p.get_eye() for p in probes])
         }
         return data
     
@@ -112,7 +112,7 @@ class SimulateDataloader:
             self.prior_info = None
         self.renderer = PRRenderer(os.path.join(case_dir, paths.MESH_FILENAME))
         self.radius_range = (1.2, 3.6)
-        self.focus_deviation = 0.1
+        self.focus_deviation = 0.0
         
     def get_image(self):
         radius = np.random.randn()
@@ -131,7 +131,7 @@ class SimulateDataloader:
         up = np.cos(roll) * up + np.sin(roll) * right
         probe = Probe(None, eye=eye, focus=focus, up=up)
         label = self.renderer.render(probe.get_matrix(), mode='FLAT', draw_mesh=[0, 1])[..., ::-1]
-        return label, direction, azimuth, zenith
+        return label, normalize_vec(-eye), azimuth, zenith
     
     def __del__(self):
         del self.renderer

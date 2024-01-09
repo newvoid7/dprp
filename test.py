@@ -74,9 +74,9 @@ def test_profen(fold=0, n_fold=4, ablation=None):
         feature_pool = torch.cat(feature_pool, dim=0)
         
         if ablations != 'wo_pps':
-            pps = PPS(probe_group, feature_pool, pps_filtered)
+            pps = PPS(probe_group.neighbor, feature_pool, pps_filtered)
         else:
-            pps = PPS(probe_group, feature_pool)
+            pps = PPS(probe_group.neighbor, feature_pool)
         
         # test
         ts = 100                # test how many times
@@ -85,7 +85,6 @@ def test_profen(fold=0, n_fold=4, ablation=None):
         for i in range(ts):
             input = []
             target = []
-            pred = []
             for _ in range(bs):
                 while True:
                     i, t, a, z = case_dataloader.get_image()
@@ -101,9 +100,7 @@ def test_profen(fold=0, n_fold=4, ablation=None):
             target = np.stack(target, axis=0)
             input = agent_task.apply(input)
             feature = profen(input)
-            for f in feature:
-                hit_index = pps.best(f)
-                pred.append(probes[hit_index].get_orientation())
+            pred = [probes[pps.best(f)].get_orientation() for f in feature]
             pred = np.stack(pred, axis=0)
             loss = cosine_similarity(target, pred, dim=1).mean()
             case_loss.append(loss)

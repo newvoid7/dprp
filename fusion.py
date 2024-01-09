@@ -101,9 +101,9 @@ class Fuser:
             restriction = restrictions[case_type]
             pps_filtered = restriction['azimuth'](self.probe_azimuth) & restriction['zenith'](self.probe_zenith)
             pps_filtered = torch.from_numpy(pps_filtered).cuda()
-            self.pps = PPS(probe_group, self.feature_pool, pps_filtered)
+            self.pps = PPS(probe_group.neighbor, self.feature_pool, pps_filtered)
         else:
-            self.pps = PPS(probe_group, self.feature_pool)
+            self.pps = PPS(probe_group.neighbor, self.feature_pool)
         
         # for re-render
         self.renderer = PRRenderer(probe_group.mesh_path, out_size=image_size)

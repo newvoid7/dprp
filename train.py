@@ -77,8 +77,9 @@ class BaseTrainer:
         best_loss = np.inf
         for epoch in tqdm(iterable=range(last_epoch, self.n_epoch), desc='Training epoch'):
             epoch_losses = self.train_epoch(epoch)
-            if best_loss > epoch_losses.mean():
+            if epoch_losses.mean() < best_loss:
                 torch.save(self.model.state_dict(), '{}/best.pth'.format(self.save_dir))
+                best_loss = epoch_losses.mean()
             train_losses = np.append(train_losses, [epoch_losses], axis=0)
             np.save('{}/loss.npy'.format(self.save_dir), train_losses)
         if self.draw_loss:

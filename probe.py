@@ -265,10 +265,10 @@ class ProbeGroup:
 
     def sparse(self, factor=4):
         """
-        Decrease probes by a factor (azimuth and elevation together),
-        note that the factor > 1, and the final number of probes is about original / factor**2
+        Decrease probes by a factor (azimuth and zenith together),
+        note that the factor > 1, and the final number of probes is about original / factor
         Args:
-            factor:
+            factor: 
         Returns:
             list of Probe:
         """

@@ -53,9 +53,9 @@ class InfoNCELoss(nn.Module):
         Theoretical average min is 
         """
         bs = f.size()[0]
-        cat_f_agent = torch.cat([noise, f], dim=0)
-        # matrix: row i are 2bs pairs of f[i]: f0, f1, ..., a0, a1, ...
-        matrix = torch.stack([self.cos_sim_func(f[i].repeat(bs * 2, 1), cat_f_agent)
+        cat_agent_f = torch.cat([noise, f], dim=0)
+        # matrix: row i are 2bs pairs of f[i]: a0, a1, ..., f0, f1, ...
+        matrix = torch.stack([self.cos_sim_func(f[i].repeat(bs * 2, 1), cat_agent_f)
                               for i in range(bs)], dim=0)
         matrix = torch.exp(matrix)
         # for each feature, 1 positive pair
@@ -117,6 +117,28 @@ class RefInfoNCELoss(nn.Module):
         loss = -torch.log(positive_pairs / (negative_pairs.sum(dim=-1) + self.eps))
         return loss.mean()
 
+
+class RefMapLoss(nn.Module):
+    """ We hope each pair of features' similarity is related to 
+    the similarity of references.
+    Args:
+        nn (_type_): _description_
+    """
+    def __init__():
+        super().__init__()
+        
+    def forward(self, f, noise, ref):
+        """
+        <f_i, f_j> => <r_i, r_j>
+        <f_i, n_j> => <r_i, r_j>
+        Args:
+            f (_type_): _description_
+            noise (_type_): _description_
+            ref (_type_): _description_
+        """
+        bs = f.size(0)
+        cat_noise_f = torch.cat([noise, f], dim=0)
+        return
 
 if __name__ == '__main__':
     f_ = torch.rand(8, 1000)

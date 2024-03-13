@@ -1,6 +1,8 @@
 from ctypes import ArgumentError
 import time
 import inspect
+import math
+import os
 
 import cv2
 import numpy as np
@@ -15,7 +17,8 @@ def time_it(func):
         start = time.time()
         result = func(*args, **kwargs)
         end = time.time()
-        with open('timecost.log', 'a') as f:
+        os.makedirs('.log', exist_ok=True)
+        with open('.log/timecost.log', 'a') as f:
             f.write('[{} {}>{}]: {:.2f} ms.\n'.format(
                 time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()), 
                 inspect.getfile(func),
@@ -50,29 +53,50 @@ def crop_and_resize_square(img, out_size, interp='bilinear'):
     return _out
 
 
-def pad_and_resize_square(img, out_size):
-    """ Pad the original image to square than resize it to the out_size
+def resize_to_fit(img, out_size, pad=True, pad_color=(0, 0, 0)):
+    """ Resize the image to make it fit the out size.
     The background is set to black by default
     Args:
-        img (np.ndarray): shape of (H, W, C)
-        out_size (int):
+        img (np.ndarray): shape of (H, W, C) or (H, W)
+        out_size (int or 2 int's):
+        pad: if True, pad the extra area; if False, crop the image.
+        pad_color: which color should be padded 
     Returns:
         np.ndarray: shape of (out_size, out_size, C)
     """
+    if isinstance(out_size, int):
+        out_h = out_size
+        out_w = out_size
+    else:
+        out_h = int(out_size[0])
+        out_w = int(out_size[1])
     if len(img.shape) == 3:    
-        h, w, c = img.shape
-        _out = np.zeros((out_size, out_size, c))
+        in_h, in_w, c = img.shape
+        _out = np.zeros((out_h, out_w, c), dtype=img.dtype)
     elif len(img.shape) == 2:
-        h, w = img.shape
-        _out = np.zeros((out_size, out_size))
+        in_h, in_w = img.shape
+        _out = np.zeros((out_h, out_w), dtype=img.dtype)
     else:
-        raise 
-    if h < w:
-        newh = h * out_size // w 
-        _out[(out_size - newh) // 2: (out_size + newh) // 2, ...] = cv2.resize(img, (w, newh))
+        raise
+    if pad:
+        if len(img.shape) == 2 and isinstance(pad_color, int):
+            _out += pad_color
+        else:
+            for i, c in enumerate(pad_color):
+                _out[i] += c
+        if in_h / in_w < out_h / out_w:
+            new_h = in_h * out_w // in_w
+            _out[(out_h - new_h) // 2: (out_h + new_h) // 2, :, ...] = cv2.resize(img, (out_w, new_h))
+        else:
+            new_w = in_w * out_h // in_h
+            _out[:, (out_w - new_w) // 2: (out_w + new_w) // 2, ...] = cv2.resize(img, (new_w, out_h))
     else:
-        neww = w * out_size // h
-        _out[:, (out_size - neww) // 2: (out_size + neww) // 2, ...] = cv2.reize(img, (neww, h))
+        if in_h / in_w < out_h / out_w:
+            new_w = in_w * out_h // in_h 
+            _out = cv2.resize(img, (new_w, out_h))[:, (new_w - out_w) // 2: (new_w + out_w) // 2, ...]
+        else:
+            new_h = in_h * out_w // in_w
+            _out = cv2.resize(img, (out_w, new_h))[(new_h - out_h) // 2: (new_h + out_h) // 2, :, ...]
     return _out
 
 
@@ -115,6 +139,28 @@ def make_colorful(img, colors):
     for i, c in enumerate(colors):
         out[(img.argmax(0) == i) & (img[i] != 0)] = c
     return out
+
+
+def stitch_images(images, gap=5):
+    amount = len(images)
+    w_num = round((amount ** 0.5) / 10) * 10
+    h_num = math.ceil(amount / w_num)
+    pic_w = images[0].shape[0]
+    pic_h = images[0].shape[1]
+    cell_height = pic_h + gap
+    cell_width = pic_w + gap
+    out_width = cell_width * w_num
+    out_height = cell_height * h_num
+    out_img = np.zeros((out_height, out_width, 3)).astype(np.uint8)
+    coords = []
+    for i, img in enumerate(images):
+        h_count = i // w_num
+        w_count = i - w_num * h_count
+        h_coord = h_count * cell_height
+        w_coord = w_count * cell_width
+        img[h_coord: h_coord + pic_h, w_coord: w_coord + pic_w, ...] = img
+        coords.append((h_coord, w_coord))
+    return out_img, coords
 
 
 def cosine_similarity(x, y, dim=0):

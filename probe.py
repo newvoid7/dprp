@@ -9,8 +9,14 @@ from render import PRRenderer
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-from utils import (time_it, quaternion_from_view_up, quaternion_rotate_vec, quaternion_to_matrix, 
-    cartesian_product, cosine_similarity)
+from utils import (time_it, 
+                   quaternion_from_view_up, 
+                   quaternion_rotate_vec, 
+                   quaternion_to_matrix, 
+                   cartesian_product, 
+                   cosine_similarity, 
+                   resize_to_fit,
+                   stitch_images)
 import paths
 
 
@@ -167,45 +173,27 @@ class ProbeGroup:
             gap (int): only effective if stitch is True
         """
         # draw images rendered from probes
-        params = {}
         if stitch:
-            w_num = round((self.amount ** 0.5) / 10) * 10
-            h_num = math.ceil(self.amount / w_num)
-            pic_w = cell_width - gap
-            pic_h = round(pic_w / self.render_size[0] * self.render_size[1])
-            cell_height = pic_h + gap
-            out_width = cell_width * w_num
-            out_height = cell_height * h_num
-            img = np.zeros((out_height, out_width, 3)).astype(np.uint8)
-            for i, p in enumerate(self.probes):
-                params[i] = {
-                    'mesh_path': p.mesh_path,
-                    'eye': p.get_eye().tolist(),
-                    'orientation': p.get_orientation().tolist(),
-                    'up': p.get_up().tolist(),
-                }
-                h_count = i // w_num
-                w_count = i - w_num * h_count
-                h_coord = h_count * cell_height
-                w_coord = w_count * cell_width
-                img[h_coord: h_coord + pic_h, w_coord: w_coord + pic_w, ...] = cv2.resize(
-                    p.render,
-                    dsize=(pic_w, pic_h)
-                )
-                cv2.putText(img, text=str(i), org=(w_coord + pic_w + gap - 55, h_coord + pic_h + gap),
-                            fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.7, color=(0, 0, 255))
+            resized = [resize_to_fit(p.render, out_size=cell_width-gap) for p in self.probes]
+            img, coords = stitch_images(resized, gap=gap)
+            for i in range(self.amount):
+                cv2.putText(img, text=str(i), org=(coords[i][1] + cell_width - 55, coords[i][0] + cell_width),
+                        fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1.7, color=(0, 0, 255))
             cv2.imwrite(os.path.join(result_dir, 'vis.png'), img)
         else:
             for i, p in enumerate(self.probes):
-                params[i] = {
-                    'mesh_path': p.mesh_path,
-                    'eye': p.get_eye().tolist(),
-                    'orientation': p.get_orientation().tolist(),
-                    'up': p.get_up().tolist(),
-                }
                 image = cv2.resize(p.render, dsize=(cell_width, cell_width))
                 cv2.imwrite(os.path.join(result_dir, 'probe_{}.jpg'.format(i)), image)
         # save position info
+        params = {
+            i: {
+                'mesh_path': p.mesh_path,
+                'eye': p.get_eye().tolist(),
+                'orientation': p.get_orientation().tolist(),
+                'up': p.get_up().tolist(),
+            } 
+            for i, p in enumerate(self.probes)
+        }
         with open(os.path.join(result_dir, 'info.json'), 'w') as f:
             json.dump(params, f, indent=4)
         # draw sample figure

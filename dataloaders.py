@@ -5,7 +5,7 @@ from batchgenerators.dataloading.data_loader import SlimDataLoaderBase
 import numpy as np
 import cv2
 
-from utils import cosine_similarity, make_channels, normalize_vec
+from utils import cosine_similarity, make_channels, normalize_vec, stitch_images, resize_to_fit
 from probe import Probe, DEFAULT_UP, ProbeGroup
 import paths
 from render import PRRenderer
@@ -120,6 +120,8 @@ class TestSingleCaseDataloader:
     
 
 class SimulateDataloader:
+    """ Single case
+    """
     def __init__(self, case_dir) -> None:
         prior_info_path = os.path.join(case_dir, paths.PRIOR_INFO_FILENAME)
         if os.path.exists(prior_info_path):
@@ -132,7 +134,7 @@ class SimulateDataloader:
         self.focus_deviation = 0.0
         
     def get_image(self):
-        radius = np.random.randn()
+        radius = np.random.uniform(*self.radius_range)
         azimuth = np.random.rand() * 2.0 * np.pi
         zenith = np.random.rand() * np.pi
         eye = np.asarray([
@@ -152,6 +154,15 @@ class SimulateDataloader:
     
     def __del__(self):
         del self.renderer
+
+
+def test_dataloader():
+    from paths import DATASET_DIR
+    for c in os.listdir(DATASET_DIR):
+        cd = os.path.join(DATASET_DIR, c)
+        sd = SimulateDataloader(case_dir=cd)
+        results = [sd.get_image()[0] for _ in range(16)]
+        results = [resize_to_fit(r, out_size=200) for r in results]
 
 
 if __name__ == '__main__':

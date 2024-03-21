@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-const path = require('node:path')
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera( 
@@ -11,6 +10,9 @@ const camera = new THREE.PerspectiveCamera(
 );
 const renderer = new THREE.WebGLRenderer();
 const loader = new GLTFLoader();
+const geometry = new THREE.BoxGeometry( 1, 1, 1 );
+const material = new THREE.MeshBasicMaterial( { color: 0x00ff00 } );
+const cube = new THREE.Mesh( geometry, material );
 
 document.getElementById('webglviewer').appendChild( renderer.domElement )
 
@@ -18,9 +20,9 @@ camera.position.set( 0, 0, 5 );
 camera.lookAt( 0, 0, 0 );
 renderer.setPixelRatio( window.devicePixelRatio );
 renderer.setSize( window.innerWidth, window.innerHeight );
-
+scene.add( cube );
 loader.load( 
-	path.join(__dirname, 'mesh.gltf'), 
+	'mesh.gltf', 
 	// called when the resource is loaded
 	function ( gltf ) {
 		scene.add( gltf.scene );

@@ -10,3 +10,5 @@ tmp*
 *.log
 *.pyc
 nohup.out
+ui/node_modules/
+*/package-lock.json

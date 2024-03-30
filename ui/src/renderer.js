@@ -29,13 +29,14 @@
 import './index.css';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 0.1, 1000 );
 const renderer = new THREE.WebGLRenderer();
 const loader = new GLTFLoader();
 const alight = new THREE.AmbientLight( 0xFFFFFF, 1 );
-const dlight = new THREE.DirectionalLight( 0xFFFFFF, 10 );
+const dlight = new THREE.DirectionalLight( 0xFFFFFF, 5 );
 
 document.getElementById( '3d-renderer' ).appendChild( renderer.domElement );
 
@@ -44,8 +45,9 @@ dlight.position.set( 10, 10, 10 );
 scene.background = new THREE.Color( '#505050' );
 scene.add( alight );
 scene.add( dlight );
-camera.position.set( 0, 0, 3 );
+camera.position.set( 0, 0, 2 );
 camera.lookAt( 0, 0, 0 );
+camera.up.copy(new THREE.Vector3(0, 1, 0));
 renderer.setSize( 0.5 * window.innerWidth, 0.5 * window.innerHeight );
 
 document.getElementById('file-selector').addEventListener('change', 
@@ -63,10 +65,9 @@ function add_gltf( path ) {
 			var model = gltf.scene;
 			// normalize
 			var bbx = new THREE.Box3().setFromObject( model );
-			var c = bbx.clone().max.add( bbx.min ).multiplyScalar( 0.5 );
 			var length = bbx.clone().max.sub( bbx.min );
 			var l = Math.max( length.x, length.y, length.z );
-			model.position.set( -c.x, -c.y, -c.z );
+			model.position.set( -0.5, -0.5, -0.5 );
 			model.scale.set( 1/l, 1/l, 1/l );
 			scene.add( model );
 		},
@@ -78,6 +79,8 @@ function add_gltf( path ) {
 		}
 	);
 }
+
+const controls = new OrbitControls( camera, renderer.domElement );
 
 function animate() {
 	requestAnimationFrame( animate );

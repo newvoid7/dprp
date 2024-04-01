@@ -158,7 +158,7 @@ def stitch_images(images, gap=5):
         w_count = i - w_num * h_count
         h_coord = h_count * cell_height
         w_coord = w_count * cell_width
-        img[h_coord: h_coord + pic_h, w_coord: w_coord + pic_w, ...] = img
+        out_img[h_coord: h_coord + pic_h, w_coord: w_coord + pic_w, ...] = img
         coords.append((h_coord, w_coord))
     return out_img, coords
 

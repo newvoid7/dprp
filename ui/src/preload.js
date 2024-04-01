@@ -9,5 +9,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   maxUnmaxWindow: () => ipcRenderer.send('window:max-unmax'),
   isWindowMaximized: () => ipcRenderer.invoke('window:is-maximized'),
   openFile: () => ipcRenderer.invoke('dialog:open-file'),
-  listDir: (dir) => ipcRenderer.invoke('os:list-dir', dir)
+  listDir: (dir) => ipcRenderer.invoke('os:list-dir', dir),
+  readFile: (path) => ipcRenderer.invoke('os:read-file', path)
 })

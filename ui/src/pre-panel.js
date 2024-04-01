@@ -21,9 +21,9 @@ container.appendChild( renderer.domElement );
 dlight.lookAt( 0, 0, 0 );
 dlight.position.set( 10, 10, 10 );
 lights.forEach( l => scene.add(l) );
-camera.position.set( 0, 0, 1.1 );
+camera.position.set( 0, 1, 0 );
 camera.lookAt( 0, 0, 0 );
-camera.up.copy(new THREE.Vector3(0, 1, 0));
+camera.up.copy(new THREE.Vector3(0, 0, 1));
 renderer.setClearAlpha(0);
 
 function vector_to_str( v ) {

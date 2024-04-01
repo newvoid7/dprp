@@ -16,6 +16,11 @@ async function handleListDir( e, dir ) {
   return files;
 }
 
+async function handleReadFile( e, path ) {
+  const lines = await fs.promises.readFile( path, 'utf8' );
+  return lines;
+}
+
 async function handleFileOpen () {
   const { canceled, filePaths } = await dialog.showOpenDialog({
     properties: ['openDirectory']
@@ -100,6 +105,7 @@ app.whenReady().then(() => {
   ipcMain.handle('window:is-maximized', handleIsWindowMaximized);
   ipcMain.handle('dialog:open-file', handleFileOpen);
   ipcMain.handle('os:list-dir', handleListDir);
+  ipcMain.handle('os:read-file', handleReadFile);
   createWindow();
   // On OS X it's common to re-create a window in the app when the
   // dock icon is clicked and there are no other windows open.

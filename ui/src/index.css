@@ -151,7 +151,7 @@ body {
 #compare-panel {
   width: 80%;
   display: grid;
-  grid-template-rows: 80% 20%;
+  grid-template-rows: 90% 10%;
   grid-template-columns: 50% 50%;
   grid-template-areas: 'a b'
                        'c c';

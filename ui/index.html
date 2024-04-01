@@ -22,24 +22,35 @@
       <div id="top-panel">
         <div id="pre-panel" class="panel">
           <div id="pre-renderer" class="renderer"></div>
+          <p id="pre-hint"></p>
           <script type="module" src="./src/pre-panel.js"></script>
         </div>
         <div id="result-panel" class="panel">result</div>
       </div>
       <div id="lower-panel">
         <div id="project-panel" class="panel">
+          <p id="dir-name"></p>
           <div id="file-list"></div>
           <p id="no-dataset-hint">当前无目录。点击下方按钮导入新目录</p>
-          <button class="normal-btn" id="import-btn">导入目录</button>
+          <div id="project-btns">
+            <button id="import-btn">导入目录</button>
+            <button id="refresh-btn"><i class="fas fa-sync-alt"></i></button>
+          </div>
           <script type="module" src="./src/project-panel.js"></script>
         </div>
         <div id="compare-panel" class="panel">
-          <div id="intra-panel">intra-operative</div>
+          <div id="intra-panel">
+            <img id="intra-image">
+          </div>
           <div id="sync-panel">sync</div>
+          <div id="parameter-panel">parameters</div>
+          <script type="module" src="./src/compare-panel.js"></script>
         </div>
       </div>
       <div id="operator-panel">
-
+        <button id="back-btn"><i class="fas fa-step-backward"></i></button>
+        <button id="play-btn"><i class="fas fa-play"></i></button>
+        <button id="forward-btn"><i class="fas fa-step-forward"></i></button>
       </div>
     </div>
     <script type="module" src="./src/renderer.js"></script>

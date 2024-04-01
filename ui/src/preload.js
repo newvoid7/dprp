@@ -8,5 +8,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   unmaximizeWindow : () => ipcRenderer.send('window:unmaximize'),
   maxUnmaxWindow: () => ipcRenderer.send('window:max-unmax'),
   isWindowMaximized: () => ipcRenderer.invoke('window:is-maximized'),
-  openFile: () => ipcRenderer.invoke('dialog:open-file')
+  openFile: () => ipcRenderer.invoke('dialog:open-file'),
+  listDir: (dir) => ipcRenderer.invoke('os:list-dir', dir)
 })

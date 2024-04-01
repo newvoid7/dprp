@@ -11,17 +11,18 @@ async function handleIsWindowMaximized( e ) {
   return BrowserWindow.fromWebContents( e.sender ).isMaximized();
 }
 
+async function handleListDir( e, dir ) {
+  const files = await fs.promises.readdir( dir );
+  return files;
+}
 
 async function handleFileOpen () {
   const { canceled, filePaths } = await dialog.showOpenDialog({
     properties: ['openDirectory']
   });
   dialog.show;
-  var ret = [filePaths[0]];
-  const files = await fs.promises.readdir( filePaths[0] );
-  ret = ret.concat(files);
   if (!canceled) {
-    return ret;
+    return filePaths[0];
   }
 }
 
@@ -98,6 +99,7 @@ const createWindow = () => {
 app.whenReady().then(() => {
   ipcMain.handle('window:is-maximized', handleIsWindowMaximized);
   ipcMain.handle('dialog:open-file', handleFileOpen);
+  ipcMain.handle('os:list-dir', handleListDir);
   createWindow();
   // On OS X it's common to re-create a window in the app when the
   // dock icon is clicked and there are no other windows open.

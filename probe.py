@@ -189,6 +189,7 @@ class ProbeGroup:
         params = {}
         params['mesh_path'] = self.mesh_path
         params['draw_mesh'] = self.draw_mesh
+        params['total'] = self.amount
         for i, p in enumerate(self.probes):
             params[i] = {
                 'eye': p.get_eye().tolist(),

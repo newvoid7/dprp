@@ -186,16 +186,16 @@ class ProbeGroup:
                 image = cv2.resize(p.render, dsize=(cell_width, cell_width))
                 cv2.imwrite(os.path.join(result_dir, 'probe_{}.jpg'.format(i)), image)
         # save position info
-        params = {}
-        params['mesh_path'] = self.mesh_path
-        params['draw_mesh'] = self.draw_mesh
-        params['total'] = self.amount
+        params = {
+            'mesh_path': self.mesh_path,
+            'draw_mesh': self.draw_mesh,
+            'total': self.amount
+        }
         for i, p in enumerate(self.probes):
             params[i] = {
-                'eye': p.get_eye().tolist(),
-                'orientation': p.get_orientation().tolist(),
-                'up': p.get_up().tolist(),
-            } 
+                'position': p.camera_position.tolist(),
+                'quaternion': p.camera_quaternion.tolist()
+            }
             
         with open(os.path.join(result_dir, 'info.json'), 'w') as f:
             json.dump(params, f, indent=4)

@@ -1,16 +1,37 @@
 {
-  "name": "pivf-lpn-app",
+  "name": "ui",
+  "productName": "ui",
   "version": "1.0.0",
-  "description": "This is the ui application for dprp.",
-  "main": "main.js",
+  "description": "My Electron application description",
+  "main": ".vite/build/main.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "electron ."
+    "start": "electron-forge start",
+    "package": "electron-forge package",
+    "make": "electron-forge make",
+    "publish": "electron-forge publish",
+    "lint": "echo \"No linting configured\""
   },
-  "author": "许立崭",
-  "license": "ISC",
+  "devDependencies": {
+    "@electron-forge/cli": "^7.3.1",
+    "@electron-forge/maker-deb": "^7.3.1",
+    "@electron-forge/maker-rpm": "^7.3.1",
+    "@electron-forge/maker-squirrel": "^7.3.1",
+    "@electron-forge/maker-zip": "^7.3.1",
+    "@electron-forge/plugin-auto-unpack-natives": "^7.3.1",
+    "@electron-forge/plugin-fuses": "^7.3.1",
+    "@electron-forge/plugin-vite": "^7.3.1",
+    "@electron/fuses": "^1.7.0",
+    "electron": "29.1.5",
+    "three": "^0.162.0",
+    "vite": "^5.2.2"
+  },
+  "keywords": [],
+  "author": {
+    "name": "newvoid7",
+    "email": "54870782+newvoid7@users.noreply.github.com"
+  },
+  "license": "MIT",
   "dependencies": {
-    "electron": "^29.1.1",
-    "three": "^0.162.0"
+    "electron-squirrel-startup": "^1.0.0"
   }
 }

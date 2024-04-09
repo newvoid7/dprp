@@ -146,7 +146,7 @@ class TrackLabelDataloader(SlimDataLoaderBase):
             fns.sort(key=lambda x: int(x[:-4]))
             images = [cv2.imread(os.path.join(paths.DATASET_DIR, c, fn)) for fn in fns]
             labels = [cv2.imread(os.path.join(paths.DATASET_DIR, c, 'label', fn)) for fn in fns]
-            factor = 600.0 / images[0].shape[0]
+            factor = 400.0 / images[0].shape[0]
             images = [cv2.resize(i, dsize=None, fx=factor, fy=factor, interpolation=cv2.INTER_CUBIC) for i in images]
             labels = [cv2.resize(l, dsize=None, fx=factor, fy=factor, interpolation=cv2.INTER_NEAREST) for l in labels]
             images = [i.transpose((2, 0, 1)) / 255 for i in images]

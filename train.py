@@ -195,7 +195,7 @@ class TrackNetTrainer(BaseTrainer):
         model_name = 'tracknet'
         save_dir = os.path.join(paths.WEIGHTS_DIR, 'fold{}'.format(fold), model_name)
         self.dataloader = TrackLabelDataloader(set_fold(fold, n_folds)[0], batch_size=batch_size, number_of_threads_in_multithreaded=8)
-        self.transform = SpatialTransform(patch_size=(512, 512),
+        self.transform = SpatialTransform(patch_size=(320, 320),
                                             do_elastic_deform=False,
                                             angle_x=(-np.pi / 3, np.pi / 3))
         self.augmenter = MultiThreadedAugmenter(self.dataloader, self.transform, num_processes=4)

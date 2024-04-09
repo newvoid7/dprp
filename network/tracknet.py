@@ -20,7 +20,7 @@ class TrackNet(nn.Module):
         self.dec4 = UpConv(chs[3], chs[2])
         self.dec3 = UpConv(chs[2], chs[1])
         self.dec2 = UpConv(chs[1], chs[0])
-        self.dec4 = DoubleConv(chs[0] + chs[0],  chs[0])
+        self.dec1 = DoubleConv(chs[0] + chs[0],  chs[0])
         self.last = nn.Conv2d(in_channels=64, out_channels=2, kernel_size=3, stride=1, padding=1)
         return
 
@@ -45,7 +45,7 @@ class TrackNet(nn.Module):
         x = self.dec3(x, f2)
         x = self.dec2(x, f1)
         x = self.dec1(torch.cat([f0, x], dim=1))
-        grid = self.last(x)
+        grid = self.last(x).permute(0, 2, 3, 1)
         new_label = nnf.grid_sample(last_label, grid)
         cycle_image = nnf.grid_sample(last_image, grid)
         return new_label, cycle_image

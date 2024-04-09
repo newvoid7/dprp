@@ -46,6 +46,7 @@ function set_size() {
     camera.right = camera_film * container.clientWidth / container.clientHeight;
     camera.top = camera_film;
     camera.bottom = -camera_film;
+    camera.updateProjectionMatrix();
 }
 
 async function read_probes( json_path, gltf_path ) {

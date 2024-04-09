@@ -112,11 +112,24 @@ async function handleRefreshBtnClick() {
     show_project_structure(fns);
 }
 
-importBtn.addEventListener('click', handleImportBtnClick);
-refreshBtn.addEventListener('click', handleRefreshBtnClick);
+function self_inc(class_name) {
+    var curr = selected[class_name];
+    if (curr < fn_list[class_name].length - 1) {
+        change_select(class_name, curr + 1);
+        return true;
+    } else {
+        return false;
+    }
+}
+
+function self_dec() {
+
+}
 
 export {
     fn_list,
     selected,
-    change_select
+    change_select,
+    handleImportBtnClick,
+    handleRefreshBtnClick,
 };

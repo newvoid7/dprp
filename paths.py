@@ -1,6 +1,6 @@
 import os
 
-DATASET_DIR = '/media/F/xlz/2d3d_dataset'
+DATASET_DIR = '../2d3d_dataset'
 WEIGHTS_DIR = 'weights'
 RESULTS_DIR = 'results'
 ALL_CASES = [d for d in os.listdir(DATASET_DIR)

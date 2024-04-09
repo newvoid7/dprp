@@ -1,9 +1,9 @@
 import cv2
 import numpy as np
-from utils import time_it
+from utils import LABEL_CHARACTERIZER, time_it, matmul_affine_matrices, evaluate_segmentation, make_channels
 
 
-class Tracker:
+class TrackerSubdiv:
     def __init__(self, first_image, first_label) -> None:
         # gpu_image = cv2.cuda_GpuMat()
         # gpu_image.upload(first_image)
@@ -38,17 +38,19 @@ class Tracker:
     def track_label(self, next_image):
         kp, des = self.detector.detectAndCompute(next_image, self.extend_mask(self.labels[-1]))
         matches = self.matcher.match(self.des[-1], des)
-        filter(lambda m: self.is_match_reasonable(self.kp[-1][m.queryIdx].pt, kp[m.trainIdx].pt), matches)
+        matches = list(filter(
+            lambda m: self.is_match_reasonable(self.kp[-1][m.queryIdx].pt, kp[m.trainIdx].pt), 
+            matches))
         matches = sorted(matches, key=lambda x: x.distance)[:self.matchNumber]
         src_pts = np.asarray([self.kp[-1][m.queryIdx].pt for m in matches]).astype(np.float32)
         dst_pts = np.asarray([kp[m.trainIdx].pt for m in matches]).astype(np.float32)
-        src_to_dst = { tuple(src_pts[i]) : dst_pts[i] for i in range(len(matches)) }
+        dst_to_src = { tuple(dst_pts[i]) : src_pts[i] for i in range(len(matches)) }
         target_label = np.zeros_like(self.labels[-1])
-        self.delaunay.insert(src_pts)
+        self.delaunay.insert(dst_pts)
         # warp each triangle
         for tri in self.delaunay.getTriangleList():
-            src_tri = np.asarray([tri[0:2], tri[2:4], tri[4:6]])
-            dst_tri = np.asarray([src_to_dst[tuple(s)] for s in src_tri])
+            dst_tri = np.asarray([tri[0:2], tri[2:4], tri[4:6]])
+            src_tri = np.asarray([dst_to_src[tuple(s)] for s in dst_tri])
             mat = cv2.getAffineTransform(src_tri, dst_tri)
             # crop a rectangle
             src_rect = cv2.boundingRect(src_tri)
@@ -73,15 +75,82 @@ class TrackerOF:
         self.detector = cv2.goodFeaturesToTrack(first_image)
 
 
+class TrackerAverage:
+    def __init__(self, first_image, first_label, strategy='perspective', use_mask=False) -> None:
+        self.matchNumber = 400
+        self.triNumber = 100
+        self.vectorThreshold = 0.1
+        self.strategy = strategy
+        self.useMask = use_mask
+        self.h = first_image.shape[0]
+        self.w = first_image.shape[1]
+        self.detector = cv2.ORB_create()
+        self.matcher = cv2.BFMatcher(normType=cv2.NORM_L2, crossCheck=True)
+        self.images = [first_image]
+        self.labels = [first_label]
+        first_kp, first_des = self.detector.detectAndCompute(first_image, 
+                                                             self.extend_mask(first_label) if self.useMask else None)
+        self.kp = [first_kp]
+        self.des = [first_des]
+        # The matrices accroding to the first label
+        first_mat = np.identity(3)
+        if self.strategy == 'affine':
+            first_mat = first_mat[:2, :]
+        self.mats = [first_mat]
+        
+    @staticmethod
+    def extend_mask(label):
+        mask = (label.sum(-1) != 0).astype(np.uint8)
+        # to include the borders
+        mask = cv2.dilate(mask, np.ones(5), iterations=3)
+        return mask
+        
+    def is_match_reasonable(self, before, after):
+        v = np.asarray(before) - np.asarray(after)
+        l = (v[0] ** 2 + v[1] ** 2) ** 0.5
+        max = (self.h ** 2 + self.w ** 2) ** 0.5
+        return l < max * self.vectorThreshold
+        
+    @time_it
+    def track_label(self, next_image):
+        kp, des = self.detector.detectAndCompute(next_image, 
+                                                 self.extend_mask(self.labels[-1]) if self.useMask else None)
+        matches = self.matcher.match(self.des[-1], des)
+        matches = list(filter(
+            lambda m: self.is_match_reasonable(self.kp[-1][m.queryIdx].pt, kp[m.trainIdx].pt), 
+            matches))
+        matches = sorted(matches, key=lambda x: x.distance)[:self.matchNumber]
+        src_pts = np.asarray([self.kp[-1][m.queryIdx].pt for m in matches]).astype(np.float32)
+        dst_pts = np.asarray([kp[m.trainIdx].pt for m in matches]).astype(np.float32)
+        if self.strategy == 'perspective':
+            homography, homo_mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC)
+            mat = np.matmul(homography, self.mats[-1])
+            new_label = cv2.warpPerspective(self.labels[0], mat, (self.w, self.h))
+        else:
+            mat = cv2.estimateAffine2D(src_pts, dst_pts)[0]
+            mat = matmul_affine_matrices(self.mats[-1], mat)
+            new_label = cv2.warpAffine(self.labels[0], mat, (self.w, self.h))
+        self.images.append(next_image)
+        self.labels.append(new_label)
+        self.kp.append(kp)
+        self.des.append(des)
+        self.mats.append(mat)
+        return new_label
+
 if __name__ == '__main__':
     import paths
     import os
-    d = os.path.join(paths.DATASET_DIR, paths.ALL_CASES[0])
+    d = os.path.join(paths.DATASET_DIR, paths.ALL_CASES[1])
     fns = [fn for fn in os.listdir(os.path.join(d, 'label')) if fn.endswith('.png')]
     images = [cv2.imread(os.path.join(d, fn)) for fn in fns]
     labels = [cv2.imread(os.path.join(d, 'label', fn)) for fn in fns]
-    tracker = Tracker(images[0], labels[0])
+    tracker = TrackerAverage(images[0], labels[0])
     for i in range(1, len(fns)):
         new_label = tracker.track_label(images[i])
-        cv2.imwrite('tmp_label.png', new_label)
+        cv2.imwrite('tmp_label_{}.png'.format(i), new_label)
+        metrics = evaluate_segmentation(
+            make_channels(new_label.transpose((2,0,1)), LABEL_CHARACTERIZER),
+            make_channels(labels[i].transpose((2,0,1)), LABEL_CHARACTERIZER)
+        )
+        print(metrics)
     

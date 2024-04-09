@@ -42,15 +42,19 @@
           <div id="intra-panel">
             <img id="intra-image">
           </div>
-          <div id="sync-panel">sync</div>
+          <div id="sync-panel">
+            <div id="sync-renderer" class="renderer"></div>
+          </div>
+          <script type="module" src="./src/sync-panel.js"></script>
           <div id="parameter-panel">parameters</div>
           <script type="module" src="./src/compare-panel.js"></script>
         </div>
       </div>
       <div id="operator-panel">
-        <button id="back-btn"><i class="fas fa-step-backward"></i></button>
+        <button id="backward-btn"><i class="fas fa-step-backward"></i></button>
         <button id="play-btn"><i class="fas fa-play"></i></button>
         <button id="forward-btn"><i class="fas fa-step-forward"></i></button>
+        <script type="module" src="./src/operator-panel.js"></script>
       </div>
     </div>
     <script type="module" src="./src/renderer.js"></script>

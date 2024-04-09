@@ -6,11 +6,14 @@ import torch
 from torch.nn import MSELoss
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+from batchgenerators.dataloading.multi_threaded_augmenter import MultiThreadedAugmenter
+from batchgenerators.transforms.spatial_transforms import SpatialTransform
 
 from network.profen import ProFEN
+from network.tracknet import TrackNet
 from network.transform import Affine2dPredictor, Affine2dPredictorSlim, Affine2dTransformer
 from network.loss import RefInfoNCELoss, InfoNCELoss
-from dataloaders import ProbeSingleCaseDataloader
+from dataloaders import ProbeSingleCaseDataloader, TrackLabelDataloader
 from probe import ProbeGroup
 from utils import time_it
 from agent import AgentTask
@@ -18,9 +21,10 @@ import paths
 from dataloaders import set_fold
 
 
+
 class BaseTrainer:
     def __init__(self, model_name, model, save_dir, 
-                 draw_loss=True, save_cycle=0, n_epoch=300, n_iter=None):
+                 draw_loss=True, save_cycle=0, n_epoch=300, n_iter=None, lr=1e-4, optimizer=None):
         """
         Args:
             model_name (str): 
@@ -38,6 +42,7 @@ class BaseTrainer:
         self.save_cycle = save_cycle
         self.n_epoch = n_epoch
         self.n_iter = n_iter            # should be set by num_total / batch_size
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr) if optimizer is None else optimizer
         os.makedirs(save_dir, exist_ok=True)
     
     def train_iter(self) -> float:
@@ -127,7 +132,6 @@ class ProfenTrainer(BaseTrainer):
         n_iter = self.dataloader.num_total // batch_size
         self.agent = AgentTask(occlusion_dir=paths.MASK_DIR)
         super().__init__(model_name=model_name, model=model, save_dir=save_dir, n_iter=n_iter, **kwargs)
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-4)
                 
     def train_iter(self) -> float:
         self.optimizer.zero_grad()
@@ -160,7 +164,6 @@ class Affine2DTrainer(BaseTrainer):
         n_iter = self.dataloader.num_total // batch_size
         self.agent = AgentTask(occlusion_dir=paths.MASK_DIR)
         super().__init__(model_name=model_name, model=model, save_dir=save_dir, n_iter=n_iter, **kwargs)
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-4)
         
     def train_iter(self) -> float:
         self.optimizer.zero_grad()
@@ -180,9 +183,48 @@ class Affine2DTrainer(BaseTrainer):
         return float(loss)
 
 
+class TrackNetTrainer(BaseTrainer):
+    def __init__(self, fold=0, n_folds=0, batch_size=4, cross_train=True, alpha=0.8, **kwargs):
+        model = TrackNet()
+        model_name = 'tracknet'
+        save_dir = os.path.join(paths.WEIGHTS_DIR, 'fold{}'.format(fold), model_name)
+        self.dataloader = TrackLabelDataloader(set_fold(fold, n_folds)[0], batch_size=batch_size, number_of_threads_in_multithreaded=8)
+        self.transform = SpatialTransform(patch_size=(320, 320),
+                                            do_elastic_deform=False,
+                                            angle_x=(-np.pi / 3, np.pi / 3))
+        self.augmenter = MultiThreadedAugmenter(self.dataloader, self.transform, num_processes=4)
+        self.batch_size = batch_size
+        n_iter = self.dataloader.num_total // batch_size
+        self.loss_func_cycle = MSELoss()
+        self.loss_func_label = MSELoss()
+        self.cross_train = cross_train
+        self.alpha = alpha
+        super().__init__(model_name=model_name, model=model, save_dir=save_dir, n_iter=n_iter, **kwargs)
+        
+    def train_iter(self) -> float:
+        self.optimizer.zero_grad()
+        batch = next(self.augmenter)
+        i0 = torch.from_numpy(batch['data'][:, :3, ...]).float().cuda()
+        i1 = torch.from_numpy(batch['data'][:, 3:, ...]).float().cuda()
+        l0 = torch.from_numpy(batch['seg'][:, :2, ...]).float().cuda()
+        l1 = torch.from_numpy(batch['seg'][:, 2:, ...]).float().cuda()
+        pred_l1, pred_i1 = self.model(i0, i1, l0)
+        loss_cycle = self.loss_func_cycle(i1, pred_i1)
+        loss_label = self.loss_func_label(l1, pred_l1)
+        loss = (1 - self.alpha) * loss_cycle + self.alpha * loss_label
+        if self.cross_train:
+            pred_l0, pred_i0 = self.model(i1, i0, l1)
+            loss_cross_cycle = self.loss_func_cycle(i0, pred_i0)
+            loss_cross_label = self.loss_func_label(l0, pred_l0)
+            loss += (1 - self.alpha) * loss_cross_cycle + self.alpha * loss_cross_label
+            loss /= 2
+        loss.backward()
+        self.optimizer.step()
+        return float(loss)
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Training parameters')
-    parser.add_argument('-g', '--gpu', type=int, default=0, required=False, 
+    parser.add_argument('-g', '--gpu', type=int, default=2, required=False, 
                         help='train on which gpu')
     parser.add_argument('-f', '--folds', type=int, nargs='+', default=[0, 1, 2, 3], required=False, 
                         help='which folds should be trained, e.g. --folds 0 2 4')
@@ -197,7 +239,7 @@ if __name__ == '__main__':
                         help='number of training epoches')
     parser.add_argument('-s', '--save_cycle', type=int, default=0, required=False,
                         help='save weight every s epoches')
-    parser.add_argument('-n', '--network', type=str, nargs='+', default=['profen', 'affine'], required=False,
+    parser.add_argument('-n', '--network', type=str, nargs='+', default=['tracknet'], required=False,
                         help='train which network, choices: affine, profen')
     args = parser.parse_args()
     
@@ -208,4 +250,8 @@ if __name__ == '__main__':
         for abl in args.ablations:
             for fold in args.folds:
                 ProfenTrainer(ablation=abl if abl != 'none' else None, fold=fold, n_folds=args.n_folds, 
+                            save_cycle=args.save_cycle, n_epoch=args.n_epoch).train(resume=args.resume)
+    if 'tracknet' in args.network:
+        for fold in args.folds:
+            TrackNetTrainer(fold=fold, n_folds=args.n_folds, 
                             save_cycle=args.save_cycle, n_epoch=args.n_epoch).train(resume=args.resume)

@@ -5,12 +5,21 @@ import argparse
 import numpy as np
 import torch
 import cv2
-import SimpleITK as sitk
 from tqdm import tqdm
 
 import paths
 from network.profen import ProFEN
-from utils import crop_and_resize_square, make_channels, time_it, images_alpha_lighten, cv2_to_tensor, tensor_to_cv2
+from utils import (LABEL_CHARACTERIZER, 
+                   RENDER4_CHARACTERIZER, 
+                   RENDER_CHARACTERIZER, 
+                   crop_and_resize_square, 
+                   make_channels, 
+                   time_it, 
+                   images_alpha_lighten, 
+                   cv2_to_tensor, 
+                   tensor_to_cv2,
+                   evaluate_segmentation
+                )
 from affine import BaseAffineSolver, GeometryAffineSolver, NetworkAffineSolver, HybridAffineSolver
 from probe import ProbeGroup
 from dataloaders import set_fold, TestSingleCaseDataloader
@@ -81,8 +90,7 @@ class Fuser:
         # (Np,)
         self.probe_zenith = np.asarray([p.get_spcoord_dict()['zenith'] for p in probes])
         # (Np, 2, H, W)
-        self.rendered_2ch_pool = np.asarray([make_channels(p.render.transpose((2, 0, 1)),
-                                                            [lambda x: x[0] != 0, lambda x: (x[0] == 0) & (x.any(0))])
+        self.rendered_2ch_pool = np.asarray([make_channels(p.render.transpose((2, 0, 1)), RENDER_CHARACTERIZER)
                                             for p in probes])
         # (Np, L) 
         # to avoid CUDA OOM, should not input all of the rendered_2ch_pool as 1 batch into feature extractor
@@ -148,42 +156,6 @@ class Fuser:
         return frame_info
 
 
-def evaluate(prediction, label):
-    """Compute the metrics between predict and label.
-    Args:
-        prediction (np.ndarray): shape of (C, H, W)
-        label (np.ndarray): shape of (C, H, W)
-    Returns:
-        dict: includes dice, hausdorff distance and average hausdorff distance
-    """
-    if prediction.shape != label.shape:
-        raise RuntimeError('The shape between prediction and label must be the same.')
-    ret_dict = {}
-    for i in range(len(prediction)):
-        pred_ch = prediction[i]
-        gt_ch = label[i]
-        dice = 2 * (pred_ch * gt_ch).sum() / (pred_ch.sum() + gt_ch.sum())
-        try:
-            pred_ch = pred_ch.astype(np.float32)
-            gt_ch = gt_ch.astype(np.float32)
-            mask1 = sitk.GetImageFromArray(pred_ch, isVector=False)
-            mask2 = sitk.GetImageFromArray(gt_ch, isVector=False)
-            contour_filter = sitk.SobelEdgeDetectionImageFilter()
-            hausdorff_distance_filter = sitk.HausdorffDistanceImageFilter()
-            hausdorff_distance_filter.Execute(contour_filter.Execute(mask1), contour_filter.Execute(mask2))
-            hd = hausdorff_distance_filter.GetHausdorffDistance()
-            avd = hausdorff_distance_filter.GetAverageHausdorffDistance()
-        except:             # Hasudorff distance computing with no pixels
-            hd = (prediction.shape[1] + prediction.shape[2]) / 2
-            avd = (prediction.shape[1] + prediction.shape[2]) / 2
-        ret_dict['channel ' + str(i)] = {
-            'dice': dice,
-            'hd': hd,
-            'avd': avd
-        }
-    return ret_dict
-
-
 def test(fold=0, n_fold=4, ablation=None, validation=False):
     base_dir = paths.DATASET_DIR
     if validation:
@@ -241,19 +213,14 @@ def test(fold=0, n_fold=4, ablation=None, validation=False):
             orig_segment = case_dataloader.labels[i]
             if orig_segment is None:                        # some frames do not have segmented labels
                 continue
-            orig_seg_2ch = make_channels(orig_segment.transpose((2, 0, 1)), [
-                lambda x: x[2] != 0, lambda x: x[1] != 0
-            ])
+            orig_seg_2ch = make_channels(orig_segment.transpose((2, 0, 1)), LABEL_CHARACTERIZER)
             frame_info = fuser.process_frame(photo, orig_seg_2ch)
             cv2.imwrite('{}/{}'.format(fusion_dir, case_dataloader.fns[i]), frame_info['fusion'])
             transformed_2ch = frame_info['transformed']
             if isinstance(transformed_2ch, torch.Tensor):
                 transformed_2ch = transformed_2ch.detach().cpu().numpy()
-            transformed_2ch = make_channels(transformed_2ch, [
-                lambda x: x.any(0) & (x[0] < x[1] + x[2]) & (x[2] < x[0] + x[1]),
-                lambda x: (x[0] < 0.1) & (x[1] > 0.2) & (x[2] > 0.2)
-            ])                                               # transformed has some other colors
-            metrics = evaluate(transformed_2ch, orig_seg_2ch)
+            transformed_2ch = make_channels(transformed_2ch, RENDER4_CHARACTERIZER)                                               # transformed has some other colors
+            metrics = evaluate_segmentation(transformed_2ch, orig_seg_2ch)
             evaluations[case_dataloader.fns[i]] = metrics
             # print('Case: {} Frame: {} is OK.'.format(case_id, case_dataloader.fns[i]))
         evaluations['average'] = {

@@ -7,6 +7,7 @@ import os
 import cv2
 import numpy as np
 import torch
+import SimpleITK as sitk
 
 
 def time_it(func):
@@ -113,6 +114,22 @@ def make_grayscale(img):
     return _out
 
 
+"""
+Pre-define some characterizer for `make_channels` parameter `conditions`
+"""
+RENDER_CHARACTERIZER = [
+    lambda x: x[0] != 0,
+    lambda x: (x[0] == 0) & (x.any(0))
+]
+LABEL_CHARACTERIZER = [
+    lambda x: x[2] != 0, 
+    lambda x: x[1] != 0
+]
+RENDER4_CHARACTERIZER = [
+    lambda x: x.any(0) & (x[0] < x[1] + x[2]) & (x[2] < x[0] + x[1]),
+    lambda x: (x[0] < 0.1) & (x[1] > 0.2) & (x[2] > 0.2)
+]
+
 def make_channels(img, conditions):
     """
     Convert the given image to a multichannel np.ndarray
@@ -125,6 +142,8 @@ def make_channels(img, conditions):
     """
     return np.asarray([c(img) for c in conditions]).astype(np.float32)
 
+WHITE = [255, 255, 255]
+YELLOW = [0, 255, 255]
 
 def make_colorful(img, colors):
     """
@@ -452,6 +471,57 @@ def matrix_from_7_parameters(param):
         [0, 0, 0, 1]
     ])
 
+
+def matmul_affine_matrices(m1, m2):
+    """
+    Multiply the matrices from functions like cv2.getAffineTransform(),
+    which are 2x3.
+    Args:
+        m1 (np.ndarray): _description_
+        m2 (np.ndarray): _description_
+    """
+    bottom = np.zeros((1, m1.shape[1]))
+    bottom[0, -1] = 1
+    n1 = np.concatenate([m1, bottom], axis=0)
+    n2 = np.concatenate([m2, bottom], axis=0)
+    n = np.matmul(n1, n2)
+    return n[:-1, ...]
+
+
+def evaluate_segmentation(prediction, label):
+    """Compute the metrics between predict and label.
+    Args:
+        prediction (np.ndarray): shape of (C, H, W)
+        label (np.ndarray): shape of (C, H, W)
+    Returns:
+        dict: includes dice, hausdorff distance and average hausdorff distance
+    """
+    if prediction.shape != label.shape:
+        raise RuntimeError('The shape between prediction and label must be the same.')
+    ret_dict = {}
+    for i in range(len(prediction)):
+        pred_ch = prediction[i]
+        gt_ch = label[i]
+        dice = 2 * (pred_ch * gt_ch).sum() / (pred_ch.sum() + gt_ch.sum())
+        try:
+            pred_ch = pred_ch.astype(np.float32)
+            gt_ch = gt_ch.astype(np.float32)
+            mask1 = sitk.GetImageFromArray(pred_ch, isVector=False)
+            mask2 = sitk.GetImageFromArray(gt_ch, isVector=False)
+            contour_filter = sitk.SobelEdgeDetectionImageFilter()
+            hausdorff_distance_filter = sitk.HausdorffDistanceImageFilter()
+            hausdorff_distance_filter.Execute(contour_filter.Execute(mask1), contour_filter.Execute(mask2))
+            hd = hausdorff_distance_filter.GetHausdorffDistance()
+            avd = hausdorff_distance_filter.GetAverageHausdorffDistance()
+        except:             # Hasudorff distance computing with no pixels
+            hd = (prediction.shape[1] + prediction.shape[2]) / 2
+            avd = (prediction.shape[1] + prediction.shape[2]) / 2
+        ret_dict['channel ' + str(i)] = {
+            'dice': dice,
+            'hd': hd,
+            'avd': avd
+        }
+    return ret_dict
 
 if __name__ == '__main__':
     view0 = np.asarray([0, 0, -1], dtype=float)

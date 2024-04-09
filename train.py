@@ -105,7 +105,6 @@ class ProfenTrainer(BaseTrainer):
         """
         Args:
             ablation (str, optional):
-                'wo_ref_loss': use original InfoNCE loss rather than RefInfoNCE
                 'wo_agent':
                 'div_4': use 1/4 of the probes
                 'div_9': use 1/9 of the probes
@@ -114,9 +113,8 @@ class ProfenTrainer(BaseTrainer):
         model = ProFEN()
         model_name = 'profen' if ablation is None else 'profen_' + ablation
         save_dir = os.path.join(paths.WEIGHTS_DIR, 'fold{}'.format(fold), model_name)
-        self.with_ref_loss = ablation != 'wo_ref_loss'
         self.with_agent = ablation != 'wo_agent'
-        self.loss_func = RefInfoNCELoss().cuda() if self.with_ref_loss else InfoNCELoss().cuda()
+        self.loss_func = InfoNCELoss().cuda()
         train_cases, _ = set_fold(fold, n_folds)
         probe_groups = [ProbeGroup(deserialize_path=os.path.join(paths.RESULTS_DIR, case_id, paths.PROBE_FILENAME))
             for case_id in train_cases]
@@ -137,11 +135,7 @@ class ProfenTrainer(BaseTrainer):
         render = torch.from_numpy(batch['data']).float().cuda()
         noise = self.agent.apply(render) if self.with_agent else render
         features = self.model(torch.cat([render, noise], dim=0))
-        if self.with_ref_loss:
-            positions = torch.from_numpy(batch['position']).float().cuda()
-            loss = self.loss_func(features[:len(features) // 2], features[len(features) // 2:], positions)
-        else:
-            loss = self.loss_func(features[:len(features) // 2], features[len(features) // 2:])
+        loss = self.loss_func(features[:len(features) // 2], features[len(features) // 2:])
         loss.backward()
         self.optimizer.step()
         return float(loss)
@@ -195,8 +189,8 @@ if __name__ == '__main__':
     parser.add_argument('-nf', '--n_folds', type=int, default=4, required=False, 
                         help='how many folds in total')
     parser.add_argument('-a', '--ablations', type=str, nargs='+', 
-                        default=['none', 'div_4', 'div_9', 'div_16', 'wo_ref_loss', 'wo_agent'], required=False, 
-                        help='which ablations to train, choices: none, div_4, div_9, div_16, wo_ref_loss, wo_agent')
+                        default=['none', 'div_4', 'div_9', 'div_16', 'wo_agent'], required=False, 
+                        help='which ablations to train, choices: none, div_4, div_9, div_16, wo_agent')
     parser.add_argument('-r', '--resume', action='store_true', default=False, required=False,
                         help='whether resume from the last training process')
     parser.add_argument('-ne', '--n_epoch', type=int, default=300, required=False,

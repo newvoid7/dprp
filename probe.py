@@ -104,6 +104,7 @@ class ProbeGroup:
         self.render_size = None
         self.grid_type = None
         self.neighbor = []
+        self.draw_mesh = [0, 1]
         if mesh_path is not None and deserialize_path is None:
             self.generate()
         elif deserialize_path is not None:
@@ -152,7 +153,7 @@ class ProbeGroup:
             raise ArgumentError('Expect gird type in [sph|fib], get {} instead.'.format(grid_type))
         for p in tqdm(iterable=positions, desc='Generating probes'):
             probe = Probe(self.mesh_path, eye=p, focus=[0, 0, 0], up=[0, 0, 1], render=None)
-            label = renderer.render(probe.get_matrix(), mode='FLAT', draw_mesh=[0, 1])[..., ::-1]
+            label = renderer.render(probe.get_matrix(), mode='FLAT', draw_mesh=self.draw_mesh)[..., ::-1]
             probe.render = label
             self.probes.append(probe)
         self.amount = len(self.probes)
@@ -186,14 +187,16 @@ class ProbeGroup:
                 cv2.imwrite(os.path.join(result_dir, 'probe_{}.jpg'.format(i)), image)
         # save position info
         params = {
-            i: {
-                'mesh_path': p.mesh_path,
-                'eye': p.get_eye().tolist(),
-                'orientation': p.get_orientation().tolist(),
-                'up': p.get_up().tolist(),
-            } 
-            for i, p in enumerate(self.probes)
+            'mesh_path': self.mesh_path,
+            'draw_mesh': self.draw_mesh,
+            'total': self.amount
         }
+        for i, p in enumerate(self.probes):
+            params[i] = {
+                'position': p.camera_position.tolist(),
+                'quaternion': p.camera_quaternion.tolist()
+            }
+            
         with open(os.path.join(result_dir, 'info.json'), 'w') as f:
             json.dump(params, f, indent=4)
         # draw sample figure

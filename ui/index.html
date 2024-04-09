@@ -2,18 +2,61 @@
 <html>
   <head>
     <meta charset="UTF-8" />
-    <meta
-      http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'"
-    />
-    <meta
-      http-equiv="X-Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'"
-    />
-    <title>腹腔镜肾部分切除术的术前术中视图融合系统</title>
+    <title>腹腔镜下肾部分切除术的术前术中视图融合系统</title>
+    <link rel="stylesheet" href="./src/index.css">
+    <script src="https://kit.fontawesome.com/1c9144b004.js" crossorigin="anonymous"></script>
   </head>
   <body>
-    <div id="webglviewer" class="full-screen"></div>
-    <script type="module" src="./js/renderer.js"></script>
+    <div id="menu-bar">
+      <div class="left" role="menu">
+        <button class="menubar-btn" id="menu-btn"><i class="fas fa-bars"></i></button>
+        <h5>LPN-PIVF</h5>
+      </div>
+      <div class="right">
+        <button class="menubar-btn" id="minimize-btn"><i class="fas fa-window-minimize"></i></button>
+        <button class="menubar-btn" id="max-unmax-btn"><i class="far fa-square"></i></button>
+        <button class="menubar-btn" id="close-btn"><i class="fas fa-times"></i></button>
+      </div>
+    </div>
+    <div id="main">
+      <div id="top-panel">
+        <div id="pre-panel" class="panel">
+          <div id="pre-renderer" class="renderer"></div>
+          <p id="pre-hint"></p>
+          <script type="module" src="./src/pre-panel.js"></script>
+        </div>
+        <div id="result-panel" class="panel">result</div>
+      </div>
+      <div id="lower-panel">
+        <div id="project-panel" class="panel">
+          <p id="dir-name"></p>
+          <div id="file-list"></div>
+          <p id="no-dataset-hint">当前无目录。点击下方按钮导入新目录</p>
+          <div id="project-btns">
+            <button id="import-btn">导入目录</button>
+            <button id="refresh-btn"><i class="fas fa-sync-alt"></i></button>
+          </div>
+          <script type="module" src="./src/project-panel.js"></script>
+        </div>
+        <div id="compare-panel" class="panel">
+          <div id="intra-panel">
+            <img id="intra-image">
+          </div>
+          <div id="sync-panel">
+            <div id="sync-renderer" class="renderer"></div>
+          </div>
+          <script type="module" src="./src/sync-panel.js"></script>
+          <div id="parameter-panel">parameters</div>
+          <script type="module" src="./src/compare-panel.js"></script>
+        </div>
+      </div>
+      <div id="operator-panel">
+        <button id="backward-btn"><i class="fas fa-step-backward"></i></button>
+        <button id="play-btn"><i class="fas fa-play"></i></button>
+        <button id="forward-btn"><i class="fas fa-step-forward"></i></button>
+        <script type="module" src="./src/operator-panel.js"></script>
+      </div>
+    </div>
+    <script type="module" src="./src/renderer.js"></script>
   </body>
 </html>

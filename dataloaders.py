@@ -1,3 +1,4 @@
+from calendar import setfirstweekday
 import os
 import json
 
@@ -5,7 +6,7 @@ from batchgenerators.dataloading.data_loader import SlimDataLoaderBase
 import numpy as np
 import cv2
 
-from utils import cosine_similarity, make_channels, normalize_vec, stitch_images, resize_to_fit
+from utils import LABEL_CHARACTERIZER, RENDER_CHARACTERIZER, cosine_similarity, make_channels, normalize_vec, stitch_images, resize_to_fit
 from probe import Probe, DEFAULT_UP, ProbeGroup
 import paths
 from render import PRRenderer
@@ -68,31 +69,11 @@ class ProbeSingleCaseDataloader(SlimDataLoaderBase):
         else:
             probes = [self._data[case_id][np.random.randint(len(self._data[case_id]))] for _ in range(self.batch_size)]
         data = {
-            'data': np.asarray([make_channels(p.render.transpose((2, 0, 1)), [
-                    lambda x: x[0] != 0,
-                    lambda x: (x[0] == 0) & (x.any(0))]) for p in probes]),
+            'data': np.asarray([make_channels(p.render.transpose((2, 0, 1)), RENDER_CHARACTERIZER) for p in probes]),
             'position': np.asarray([p.get_eye() for p in probes])
         }
         return data
     
-    
-class RealTimeProbeDataloader(SlimDataLoaderBase):
-    """
-    Render a batch of images real-time.
-    Args:
-        SlimDataLoaderBase (_type_): _description_
-    """
-    def __init__(self, batch_size=8, batch_same_side=True, num_threads=None):
-        """
-        Args:
-            probes (list of (list of Probe)): list of case, each case is a number of probes.
-            batch_size (int):
-            num_threads:
-        """
-        self.num_cases = len(probes)
-        self.num_total = sum([len(p) for p in probes])
-        self.batch_same_side = batch_same_side
-        super(ProbeSingleCaseDataloader, self).__init__(probes, batch_size, num_threads)
     
 class TestSingleCaseDataloader:
     def __init__(self, case_dir):
@@ -156,26 +137,58 @@ class SimulateDataloader:
         del self.renderer
 
 
-def test_dataloader():
-    from paths import DATASET_DIR
-    for c in os.listdir(DATASET_DIR):
-        cd = os.path.join(DATASET_DIR, c)
-        sd = SimulateDataloader(case_dir=cd)
-        results = [sd.get_image()[0] for _ in range(16)]
-        results = [resize_to_fit(r, out_size=200) for r in results]
+class TrackLabelDataloader(SlimDataLoaderBase):
+    def __init__(self, cases, batch_size, number_of_threads_in_multithreaded=None):
+        data = []
+        for c in cases:
+            fns = [fn for fn in os.listdir(os.path.join(paths.DATASET_DIR, c, 'label')) 
+                   if fn.endswith('.png') or fn.endswith('.jpg')]
+            fns.sort(key=lambda x: int(x[:-4]))
+            images = [cv2.imread(os.path.join(paths.DATASET_DIR, c, fn)) for fn in fns]
+            labels = [cv2.imread(os.path.join(paths.DATASET_DIR, c, 'label', fn)) for fn in fns]
+            factor = 400.0 / images[0].shape[0]
+            images = [cv2.resize(i, dsize=None, fx=factor, fy=factor, interpolation=cv2.INTER_CUBIC) for i in images]
+            labels = [cv2.resize(l, dsize=None, fx=factor, fy=factor, interpolation=cv2.INTER_NEAREST) for l in labels]
+            images = [i.transpose((2, 0, 1)) / 255 for i in images]
+            labels = [make_channels(l.transpose((2, 0, 1)), LABEL_CHARACTERIZER) for l in labels]
+            data.append({
+                'image': images,
+                'label': labels,
+                'count': len(fns)
+            })
+        self.num_cases = len(cases)
+        self.num_total = sum([d['count'] for d in data])
+        super().__init__(data, batch_size, number_of_threads_in_multithreaded)
+        
+    def generate_train_batch(self):
+        c = np.random.randint(self.num_cases)
+        idx = np.random.randint(low=0, high=self._data[c]['count'] - 1, size=self.batch_size)
+        ret_dict = {
+            # (B, C=6, H, W)
+            'data': np.stack([
+                np.concatenate(self._data[c]['image'][i: i+2], axis=0)
+                for i in idx
+            ], axis=0),
+            # (B, C=4, H, W)
+            'seg': np.stack([
+                np.concatenate(self._data[c]['label'][i: i+2], axis=0)
+                for i in idx
+            ], axis=0)
+        }
+        return ret_dict     
 
 
 if __name__ == '__main__':
-    from utils import cosine_similarity
-    def consine_sim_pairs(l):
-        ret = []
-        for i in range(len(l) - 1):
-            for j in range(i + 1, len(l)):
-                ret.append(cosine_similarity(l[i], l[j]))
-        return ret
-    
-    probes = [ProbeGroup(deserialize_path=os.path.join(paths.RESULTS_DIR, c, paths.PROBE_FILENAME)).probes for c in paths.ALL_CASES]
-    dl = ProbeSingleCaseDataloader(probes, batch_same_side=True)
-    observation_positions = [consine_sim_pairs(next(dl)['position']) for _ in range(100000)]
-    observation_positions = np.asarray(observation_positions)
-    print(observation_positions.mean())
+    from batchgenerators.dataloading.multi_threaded_augmenter import MultiThreadedAugmenter
+    from batchgenerators.transforms.spatial_transforms import SpatialTransform
+    train, test = set_fold(0, 4)
+    tl = TrackLabelDataloader(train, batch_size=8, number_of_threads_in_multithreaded=8)
+    trans = SpatialTransform(
+        patch_size=(512, 512),
+        do_elastic_deform=False,
+        angle_x=(-np.pi / 3, np.pi / 3)
+    )
+    ag = MultiThreadedAugmenter(tl, trans, num_processes=4)
+    d = next(tl)
+    dd = next(ag)
+    print('ok')

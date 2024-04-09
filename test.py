@@ -11,7 +11,7 @@ from dataloaders import set_fold, SimulateDataloader
 import paths
 from probe import ProbeGroup
 from agent import AgentTask
-from utils import make_channels, cosine_similarity, time_it, make_colorful, tensor_to_cv2
+from utils import RENDER_CHARACTERIZER, make_channels, cosine_similarity, time_it, make_colorful, tensor_to_cv2
 from fusion import restrictions
 from pps import PPS
 
@@ -60,8 +60,7 @@ def test_profen(fold=0, n_fold=4, ablation=None):
         pps_filtered = torch.from_numpy(pps_filtered).cuda()
         
         # feature pool
-        image_pool = np.asarray([make_channels(p.render.transpose((2, 0, 1)),
-                                            [lambda x: x[0] != 0, lambda x: (x[0] == 0) & (x.any(0))])
+        image_pool = np.asarray([make_channels(p.render.transpose((2, 0, 1)), RENDER_CHARACTERIZER)
                                         for p in probes])
         image_pool = torch.from_numpy(image_pool)
         feature_pool = []
@@ -82,7 +81,7 @@ def test_profen(fold=0, n_fold=4, ablation=None):
         ts = 100                # test how many times
         bs = 16                 # batch size
         start_time = time.time()
-        for i in range(ts):
+        for t in range(ts):
             input = []
             target = []
             for _ in range(bs):
@@ -90,10 +89,7 @@ def test_profen(fold=0, n_fold=4, ablation=None):
                     i, t, a, z = case_dataloader.get_image()
                     if restriction['azimuth'](a / np.pi * 180) and restriction['zenith'](z / np.pi * 180):
                         break
-                i = make_channels(i.transpose((2, 0, 1)), [
-                    lambda x: x[0] != 0,
-                    lambda x: (x[0] == 0) & (x.any(0))
-                ])
+                i = make_channels(i.transpose((2, 0, 1)), RENDER_CHARACTERIZER)
                 input.append(torch.from_numpy(i))
                 target.append(torch.from_numpy(t.copy()))
             input = torch.stack(input, dim=0).cuda()

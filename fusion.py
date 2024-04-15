@@ -12,7 +12,7 @@ from network.profen import ProFEN
 from utils import (LABEL_CHARACTERIZER, 
                    RENDER4_CHARACTERIZER, 
                    RENDER_CHARACTERIZER, 
-                   crop_and_resize_square, 
+                   resize_to_fit, 
                    make_channels, 
                    time_it, 
                    images_alpha_lighten, 
@@ -130,7 +130,7 @@ class Fuser:
                 'render' (np.ndarray): shape of (H, W, 3)
         """
         seg_square_2ch = segment_2ch.transpose((1, 2, 0))
-        seg_square_2ch = crop_and_resize_square(seg_square_2ch, out_size=512, interp='nearest')
+        seg_square_2ch = resize_to_fit(seg_square_2ch, out_size=512, interp=cv2.INTER_NEAREST)
         seg_square_2ch = seg_square_2ch.transpose((2, 0, 1))
         # find the best matching probe
         seg_feature = self.feature_extractor(torch.from_numpy(seg_square_2ch).cuda().unsqueeze(0))

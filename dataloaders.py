@@ -6,7 +6,7 @@ from batchgenerators.dataloading.data_loader import SlimDataLoaderBase
 import numpy as np
 import cv2
 
-from utils import LABEL_CHARACTERIZER, RENDER_CHARACTERIZER, cosine_similarity, make_channels, normalize_vec, stitch_images, resize_to_fit
+from utils import LABEL_CHARACTERIZER, RENDER_CHARACTERIZER, cosine_similarity, make_channels, normalize_vec
 from probe import Probe, DEFAULT_UP, ProbeGroup
 import paths
 from render import PRRenderer
@@ -175,7 +175,7 @@ class TrackLabelDataloader(SlimDataLoaderBase):
                 for i in idx
             ], axis=0)
         }
-        return ret_dict     
+        return ret_dict
 
 
 if __name__ == '__main__':

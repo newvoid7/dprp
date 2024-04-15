@@ -1,17 +1,25 @@
 import os
-import random
-import time
 
 import torch
-from torch.nn import CosineSimilarity
 import numpy as np
+import cv2
 
 from network.profen import ProFEN
+from network.tracknet import TrackNet
 from dataloaders import set_fold, SimulateDataloader
 import paths
 from probe import ProbeGroup
 from agent import AgentTask
-from utils import RENDER_CHARACTERIZER, make_channels, cosine_similarity, time_it, make_colorful, tensor_to_cv2
+from utils import (RENDER_CHARACTERIZER, LABEL_CHARACTERIZER, WHITE, YELLOW, 
+                   make_channels, 
+                   make_colorful,
+                   cosine_similarity, 
+                   time_it, 
+                   cv2_to_tensor, 
+                   evaluate_segmentation, 
+                   crop_patches, 
+                   merge_patches, 
+                   resize_to_fit)
 from fusion import restrictions
 from pps import PPS
 
@@ -107,8 +115,48 @@ def test_profen(fold=0, n_fold=4, ablation=None):
     return test_loss, time_cost
 
 
-if __name__ == '__main__':
-    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+@time_it
+def test_tracknet(fold=0, n_fold=4):
+    tracknet = TrackNet().cuda()
+    tracknet.load_state_dict(torch.load(os.path.join(paths.WEIGHTS_DIR, 'fold{}'.format(fold), 'tracknet', 'best.pth')))
+    tracknet.eval()
+    test_cases = set_fold(fold, n_fold)[1]
+    ret_dict = {}
+    for c in test_cases:
+        ret_dict[c] = {}
+        os.makedirs(os.path.join('tmp', c), exist_ok=True)
+        case_dir = os.path.join(paths.DATASET_DIR, c)
+        fns = [fn for fn in os.listdir(case_dir) if fn.endswith('.png') or fn.endswith('.jpg')]
+        fns.sort(key=lambda x: int(x[:-4]))
+        images = [cv2.imread(os.path.join(case_dir, fn)) for fn in fns]
+        size = images[0].shape[:2]
+        # images = [crop_patches(cv2_to_tensor(i), (320, 320)) for i in images]
+        images = [cv2_to_tensor(resize_to_fit(i, (400, 400))).unsqueeze(0) for i in images]
+        labels = [cv2.imread(os.path.join(case_dir, 'label', fn)) for fn in fns]
+        labels = [resize_to_fit(l, (400, 400), interp=cv2.INTER_NEAREST) if l is not None else None for l in labels]
+        labels = [make_channels(l.transpose((2, 0, 1)), LABEL_CHARACTERIZER) if l is not None else None for l in labels]
+        # last_label = crop_patches(torch.from_numpy(labels[0]), (320, 320))
+        first_label_idx = 0
+        for i in range(len(labels)):
+            if labels[i] is None:
+                first_label_idx += 1
+            else:
+                break
+        last_label = torch.from_numpy(labels[first_label_idx]).unsqueeze(0)
+        for i, fn in enumerate(fns[first_label_idx + 1:]):
+            with torch.no_grad():
+                pred_label, _ = tracknet(images[i + first_label_idx].cuda(), images[i + 1 + first_label_idx].cuda(), last_label.cuda())
+            # pred_label_cv2 =  merge_patches((320, 320), size, pred_label).detach().cpu().numpy().squeeze()
+            pred_label_cv2 = pred_label.detach().cpu().numpy().squeeze()
+            cv2.imwrite(os.path.join('tmp', c, fn), make_colorful(pred_label_cv2, (WHITE, YELLOW)))
+            if labels[i + 1] is not None:
+                metrics = evaluate_segmentation(pred_label_cv2, labels[i + 1])
+                ret_dict[c][fn] = metrics
+            last_label = pred_label
+    return ret_dict
+
+
+def test_ablations():
     ablations = ['div_4', 'div_9', 'div_16', 'wo_pps', 'wo_agent', 'wo_ref_loss']
     loss = []
     time_cost = []
@@ -128,3 +176,15 @@ if __name__ == '__main__':
         loss_abl[k] = np.asarray([np.asarray(l).mean() for l in loss_abl[k]])
         time_cost_abl[k] = np.asarray([np.asarray(t).mean() for t in time_cost_abl[k]])
     print('OK')
+
+
+if __name__ == '__main__':
+    os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+    for f in range(4):
+        m = test_tracknet(f)
+        dices = np.asarray([
+            [m[c][fn]['channel 0']['dice'] 
+            for fn in m[c].keys()] 
+            for c in m.keys()
+        ])
+        print(dices.mean())

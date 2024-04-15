@@ -30,33 +30,10 @@ def time_it(func):
     return wrapper
 
 
-def crop_and_resize_square(img, out_size, interp='bilinear'):
-    """
-    Crop the biggest square of the photo, which centered at the center of original photo,
-    then resize it to the given size.
-    Args:
-        img(np.ndarray): shape of (H, W, C)
-        out_size(int):
-    Returns:
-        np.ndarray: shape of (out_size, out_size, C)
-    """
-    h, w = img.shape[0], img.shape[1]
-    if h < w:
-        img = img[:, (w - h) // 2: (w + h) // 2, ...]
-    else:
-        img = img[(h - w) // 2: (h + w) // 2, ...]
-    if interp == 'bilinear':
-        _out = cv2.resize(img, (out_size, out_size), interpolation=cv2.INTER_LINEAR)
-    elif interp == 'nearest':
-        _out = cv2.resize(img, (out_size, out_size), interpolation=cv2.INTER_NEAREST)
-    else:
-        _out = cv2.resize(img, (out_size, out_size))
-    return _out
-
-
-def resize_to_fit(img, out_size, pad=True, pad_color=(0, 0, 0)):
+def resize_to_fit(img, out_size, pad=True, pad_color=(0, 0, 0), interp=cv2.INTER_LINEAR):
     """ Resize the image to make it fit the out size.
-    The background is set to black by default
+    The background is set to black by default.
+    If not pad, then crop the biggest part of image.
     Args:
         img (np.ndarray): shape of (H, W, C) or (H, W)
         out_size (int or 2 int's):
@@ -87,17 +64,17 @@ def resize_to_fit(img, out_size, pad=True, pad_color=(0, 0, 0)):
                 _out[i] += c
         if in_h / in_w < out_h / out_w:
             new_h = in_h * out_w // in_w
-            _out[(out_h - new_h) // 2: (out_h + new_h) // 2, :, ...] = cv2.resize(img, (out_w, new_h))
+            _out[(out_h - new_h) // 2: (out_h + new_h) // 2, :, ...] = cv2.resize(img, (out_w, new_h), interpolation=interp)
         else:
             new_w = in_w * out_h // in_h
-            _out[:, (out_w - new_w) // 2: (out_w + new_w) // 2, ...] = cv2.resize(img, (new_w, out_h))
+            _out[:, (out_w - new_w) // 2: (out_w + new_w) // 2, ...] = cv2.resize(img, (new_w, out_h), interpolation=interp)
     else:
         if in_h / in_w < out_h / out_w:
             new_w = in_w * out_h // in_h 
-            _out = cv2.resize(img, (new_w, out_h))[:, (new_w - out_w) // 2: (new_w + out_w) // 2, ...]
+            _out = cv2.resize(img, (new_w, out_h), interpolation=interp)[:, (new_w - out_w) // 2: (new_w + out_w) // 2, ...]
         else:
             new_h = in_h * out_w // in_w
-            _out = cv2.resize(img, (out_w, new_h))[(new_h - out_h) // 2: (new_h + out_h) // 2, :, ...]
+            _out = cv2.resize(img, (out_w, new_h), interpolation=interp)[(new_h - out_h) // 2: (new_h + out_h) // 2, :, ...]
     return _out
 
 
@@ -145,7 +122,7 @@ def make_channels(img, conditions):
 WHITE = [255, 255, 255]
 YELLOW = [0, 255, 255]
 
-def make_colorful(img, colors):
+def make_colorful(img, colors, threshold=0.5):
     """
     Convert the one-hot image to 3-colored image, if all channel are 0, set color to (0, 0, 0).
     Args:
@@ -156,7 +133,7 @@ def make_colorful(img, colors):
     """
     out = np.zeros((img.shape[1], img.shape[2], 3), dtype=np.uint8)
     for i, c in enumerate(colors):
-        out[(img.argmax(0) == i) & (img[i] != 0)] = c
+        out[(img.argmax(0) == i) & (img[i] >= threshold)] = c
     return out
 
 
@@ -522,6 +499,51 @@ def evaluate_segmentation(prediction, label):
             'avd': avd
         }
     return ret_dict
+
+def patch_helper(size, psize, f=0.5):
+    """
+    Compute the patch coordinates
+    Args:
+        size (_type_): _description_
+        psize (_type_): _description_
+        f (float, optional): How much should be overlapped between neighbors. Defaults to 0.5.
+    """
+    H, W = size
+    h, w = psize
+    nh = math.ceil((W / w - 1) / (1 - f)) + 1
+    nw = math.ceil((H / h - 1) / (1 - f)) + 1
+    step_h = (H - h) // (nh - 1)
+    step_w = (W - w) // (nw - 1)
+    start_h = [step_h * i for i in range(nh - 1)] + [H - h]
+    start_w = [step_w * i for i in range(nw - 1)] + [W - w]
+    return [
+        [start_h[i], start_w[j]]
+        for j in range(nw)
+        for i in range(nh)
+    ]
+    
+def crop_patches(image, psize):
+    """
+    Crop a tensor into pathes
+    Args:
+        image (torch.Tensor): shape of (C, H, W)
+    Returns:
+        patched_image (torch.Tensor)
+    """
+    coords = patch_helper(image.size()[1:], psize)
+    patches = torch.stack([
+        image[:, c[0] : c[0] + psize[0], c[1] : c[1] + psize[1]]
+        for c in coords
+    ], dim=0)
+    return patches
+    
+def merge_patches(psize, size, patches):
+    coords = patch_helper(size, psize)
+    ret_image = torch.zeros((patches.size(1), *size))
+    for i, c in enumerate(coords):
+        ret_image[:, c[0] : c[0] + psize[0], c[1] : c[1] + psize[1]] = patches[i]
+    return ret_image
+    
 
 if __name__ == '__main__':
     view0 = np.asarray([0, 0, -1], dtype=float)

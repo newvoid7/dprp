@@ -239,7 +239,7 @@ if __name__ == '__main__':
                         help='number of training epoches')
     parser.add_argument('-s', '--save_cycle', type=int, default=0, required=False,
                         help='save weight every s epoches')
-    parser.add_argument('-n', '--network', type=str, nargs='+', default=['tracknet'], required=False,
+    parser.add_argument('-n', '--network', type=str, nargs='+', default=['profen', 'affine', 'tracknet'], required=False,
                         help='train which network, choices: affine, profen')
     args = parser.parse_args()
     

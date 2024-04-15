@@ -89,7 +89,7 @@ class TrackerAverage:
         self.images = [first_image]
         self.labels = [first_label]
         first_kp, first_des = self.detector.detectAndCompute(first_image, 
-                                                             self.extend_mask(first_label) if self.useMask else None)
+            self.extend_mask(first_label) if self.useMask else None)
         self.kp = [first_kp]
         self.des = [first_des]
         # The matrices accroding to the first label

@@ -3,6 +3,7 @@ import os
 import torch
 import numpy as np
 import cv2
+import time
 
 from network.profen import ProFEN
 from network.tracknet import TrackNet
@@ -80,7 +81,7 @@ def test_profen(fold=0, n_fold=4, ablation=None):
                 feature_pool.append(pred)
         feature_pool = torch.cat(feature_pool, dim=0)
         
-        if ablations != 'wo_pps':
+        if ablation != 'wo_pps':
             pps = PPS(probe_group.neighbor, feature_pool, pps_filtered)
         else:
             pps = PPS(probe_group.neighbor, feature_pool)

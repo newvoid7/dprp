@@ -87,7 +87,7 @@ class PRRenderer:
                 See `volume_to_mesh.py`
             mode (str):
         Returns:
-            np.ndarray: shape of (H, W, [RGB]), dtype=np.uint8
+            np.ndarray: shape of (H, W, [RGB] or mode indicated), dtype=np.uint8
         """
         # keep the light and the camera facing the same direction
         self.scene.set_pose(self.node_camera, pose=mat)

@@ -92,11 +92,13 @@ def make_grayscale(img):
 
 
 """
-Pre-define some characterizer for `make_channels` parameter `conditions`
+Pre-define some characterizer for `characterize` parameter `conditions`
 """
-RENDER_CHARACTERIZER = [
-    lambda x: x[0] != 0,
-    lambda x: (x[0] == 0) & (x.any(0))
+RENDER_FLAT_CHARACTERIZER = [
+    # caution: RGB rather than BGR
+    # caution: result not one-hot
+    lambda x: x.sum(0) != 0,
+    lambda x: (x[2] == 0) & (x.any(0))
 ]
 LABEL_GT_CHARACTERIZER = [
     lambda x: x[2] != 0, 
@@ -117,12 +119,12 @@ def characterize(img, conditions):
     Returns:
         np.ndarray: dtype=np.float32, shape of (len(conditions), H, W), value of 0/1
     """
-    return np.asarray([c(img) for c in conditions]).astype(np.float32)
+    return np.stack([c(img) for c in conditions], axis=0).astype(np.float32)
 
 WHITE = [255, 255, 255]
 YELLOW = [0, 255, 255]
 
-def colorize(img, colors, threshold=0.5):
+def colorize(img, colors):
     """
     Convert the one-hot image to 3-colored image, if all channel are 0, set color to (0, 0, 0).
     Args:
@@ -133,7 +135,7 @@ def colorize(img, colors, threshold=0.5):
     """
     out = np.zeros((img.shape[1], img.shape[2], 3), dtype=np.uint8)
     for i, c in enumerate(colors):
-        out[(img.argmax(0) == i) & (img[i] >= threshold)] = c
+        out[img[i] == 1] = c
     return out
 
 

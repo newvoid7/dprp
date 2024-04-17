@@ -98,13 +98,17 @@ RENDER_CHARACTERIZER = [
     lambda x: x[0] != 0,
     lambda x: (x[0] == 0) & (x.any(0))
 ]
-LABEL_CHARACTERIZER = [
+LABEL_GT_CHARACTERIZER = [
     lambda x: x[2] != 0, 
     lambda x: x[1] != 0
 ]
 RENDER4_CHARACTERIZER = [
     lambda x: x.any(0) & (x[0] < x[1] + x[2]) & (x[2] < x[0] + x[1]),
     lambda x: (x[0] < 0.1) & (x[1] > 0.2) & (x[2] > 0.2)
+]
+LABEL_PRED_CHARACTERIZER = [
+    lambda x: (x[0] > 0.5) & (x[0] > x[1]), 
+    lambda x: (x[1] > 0.5) & (x[1] > x[0])
 ]
 
 def make_channels(img, conditions):

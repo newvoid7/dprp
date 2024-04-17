@@ -11,7 +11,7 @@ from dataloaders import set_fold, SimulateDataloader
 import paths
 from probe import ProbeGroup
 from agent import AgentTask
-from utils import (RENDER_CHARACTERIZER, LABEL_CHARACTERIZER, WHITE, YELLOW, 
+from utils import (RENDER_CHARACTERIZER, LABEL_GT_CHARACTERIZER, WHITE, YELLOW, 
                    make_channels, 
                    make_colorful,
                    cosine_similarity, 
@@ -135,7 +135,7 @@ def test_tracknet(fold=0, n_fold=4):
         images = [cv2_to_tensor(resize_to_fit(i, (400, 400))).unsqueeze(0) for i in images]
         labels = [cv2.imread(os.path.join(case_dir, 'label', fn)) for fn in fns]
         labels = [resize_to_fit(l, (400, 400), interp=cv2.INTER_NEAREST) if l is not None else None for l in labels]
-        labels = [make_channels(l.transpose((2, 0, 1)), LABEL_CHARACTERIZER) if l is not None else None for l in labels]
+        labels = [make_channels(l.transpose((2, 0, 1)), LABEL_GT_CHARACTERIZER) if l is not None else None for l in labels]
         # last_label = crop_patches(torch.from_numpy(labels[0]), (320, 320))
         first_label_idx = 0
         for i in range(len(labels)):

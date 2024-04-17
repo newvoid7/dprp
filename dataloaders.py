@@ -6,7 +6,7 @@ from batchgenerators.dataloading.data_loader import SlimDataLoaderBase
 import numpy as np
 import cv2
 
-from utils import LABEL_CHARACTERIZER, RENDER_CHARACTERIZER, cosine_similarity, make_channels, normalize_vec
+from utils import LABEL_GT_CHARACTERIZER, RENDER_CHARACTERIZER, cosine_similarity, make_channels, normalize_vec
 from probe import Probe, DEFAULT_UP, ProbeGroup
 import paths
 from render import PRRenderer
@@ -150,7 +150,7 @@ class TrackLabelDataloader(SlimDataLoaderBase):
             images = [cv2.resize(i, dsize=None, fx=factor, fy=factor, interpolation=cv2.INTER_CUBIC) for i in images]
             labels = [cv2.resize(l, dsize=None, fx=factor, fy=factor, interpolation=cv2.INTER_NEAREST) for l in labels]
             images = [i.transpose((2, 0, 1)) / 255 for i in images]
-            labels = [make_channels(l.transpose((2, 0, 1)), LABEL_CHARACTERIZER) for l in labels]
+            labels = [make_channels(l.transpose((2, 0, 1)), LABEL_GT_CHARACTERIZER) for l in labels]
             data.append({
                 'image': images,
                 'label': labels,

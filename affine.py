@@ -23,6 +23,14 @@ class BaseAffineSolver:
         """
         pass
     
+    def apply(self, mat, _in, return_tensor=True):
+        new_in_tensor = cv2_to_tensor(_in).unsqueeze(0).cuda()
+        grid = nnf.affine_grid(mat, new_in_tensor.size(), align_corners=False).cuda()
+        transformed = nnf.grid_sample(new_in_tensor, grid, mode='bilinear', align_corners=False).squeeze()
+        if not return_tensor:
+            transformed = tensor_to_cv2(transformed)
+        return transformed
+    
     @time_it
     def solve_and_affine(self, src: np.ndarray, dst: np.ndarray, new_in: np.ndarray, return_tensor=True):
         """
@@ -59,11 +67,7 @@ class BaseAffineSolver:
             [inv_s * cos_a, inv_s * sin_a * r, -inv_s * (tx * cos_a + ty * sin_a) * l_w],
             [-inv_s * sin_a / r, inv_s * cos_a, inv_s * (tx * sin_a - ty * cos_a) * l_h]
         ]], dtype=torch.float32).cuda()
-        new_in_tensor = cv2_to_tensor(new_in).unsqueeze(0).cuda()
-        grid = nnf.affine_grid(mat, new_in_tensor.size(), align_corners=False).cuda()
-        transformed = nnf.grid_sample(new_in_tensor, grid, mode='bilinear', align_corners=False).squeeze()
-        if not return_tensor:
-            transformed = tensor_to_cv2(transformed)
+        transformed = self.apply(mat, new_in)
         return transformed, mat
 
 
@@ -90,8 +94,14 @@ class NetworkAffineSolver(BaseAffineSolver):
 
 class GeometryAffineSolver(BaseAffineSolver):
     def __init__(self) -> None:
-        self.mse_func = torch.nn.MSELoss(reduction='none')
         return
+    
+    @staticmethod
+    def eval_func(preds, target):
+        inter = (preds * target).sum((-1, -2))
+        psum = preds.sum((-1, -2))
+        tsum = target.sum((-1, -2))
+        return 2 * inter / (psum + tsum)
     
     @staticmethod
     def centroid(i, normal=True):
@@ -118,35 +128,45 @@ class GeometryAffineSolver(BaseAffineSolver):
         return centerh, centerw
     
     def solve(self, src: np.ndarray, dst: np.ndarray):
-        centerh_src_0, centerw_src_0 = self.centroid(src[0])
-        centerh_src_1, centerw_src_1 = self.centroid(src[1])
-        centerh_dst_0, centerw_dst_0 = self.centroid(dst[0])
-        centerh_dst_1, centerw_dst_1 = self.centroid(dst[1])
+        # centerh_src_0, centerw_src_0 = self.centroid(src[0])
+        # centerh_src_1, centerw_src_1 = self.centroid(src[1])
+        # centerh_dst_0, centerw_dst_0 = self.centroid(dst[0])
+        # centerh_dst_1, centerw_dst_1 = self.centroid(dst[1])
         centerh_src, centerw_src = self.centroid(src.sum(0))
         centerh_dst, centerw_dst = self.centroid(dst.sum(0))
-        tx = (centerw_dst_0 - centerw_src_0 + centerw_dst_1 - centerw_src_1) / 2
-        ty = (centerh_dst_0 - centerh_src_0 + centerh_dst_1 - centerh_src_1) / 2
+        # tx = (centerw_dst_0 - centerw_src_0 + centerw_dst_1 - centerw_src_1) / 2
+        # ty = (centerh_dst_0 - centerh_src_0 + centerh_dst_1 - centerh_src_1) / 2
+        tx0 = -centerw_src
+        ty0 = -centerh_src
+        tx1 = centerw_dst
+        ty1 = centerh_dst
         scale = (dst.sum() / src.sum()) ** 0.5
         inv_s = 1.0 / scale
         rot_batch = torch.arange(0, 360, 1, dtype=torch.float32, device='cuda') / 180 * torch.pi
+        '''
+        For src => dst: translate_to_origin -> scale -> rotate -> translate_to_new_position,
+        Then for dst => src (sample) is reversed.
+        [1, 0, -tx0]   [1/s, 0,   0]   [cos,  sin, 0]   [1, 0, -tx1]
+        [0, 1, -ty0] * [0,   1/s, 0] * [-sin, cos, 0] * [0, 1, -ty1]
+        [0, 0, 1   ]   [0,   0,   1]   [0,    0,   1]   [0, 0, 1   ]
+        '''
         sin_a = torch.sin(rot_batch)
         cos_a = torch.cos(rot_batch)
         mat00_batch = inv_s * cos_a
         mat01_batch = inv_s * sin_a
-        mat02_batch = -inv_s * (tx * cos_a + ty * sin_a)
-        mat12_batch = inv_s * (tx * sin_a - ty * cos_a)
+        mat02_batch = -inv_s * (tx1 * cos_a + ty1 * sin_a) - tx0
+        mat12_batch = inv_s * (tx1 * sin_a - ty1 * cos_a) - ty0
         mat0_batch = torch.stack((mat00_batch, mat01_batch, mat02_batch), dim=1)
         mat1_batch = torch.stack((-mat01_batch, mat00_batch, mat12_batch), dim=1)
-        # see Affine2dTransformer in affine2d.py
         mat_batch = torch.stack((mat0_batch, mat1_batch), dim=1)
         src_tensor = torch.from_numpy(src).cuda().unsqueeze(0).repeat(len(rot_batch), 1, 1, 1)
-        dst_tensor = torch.from_numpy(dst).cuda().unsqueeze(0).repeat(len(rot_batch), 1, 1, 1)
+        dst_tensor = torch.from_numpy(dst).cuda()
         grid_batch = nnf.affine_grid(mat_batch, src_tensor.size(), align_corners=False)
         transformed_batch = nnf.grid_sample(src_tensor, grid_batch, mode='nearest', align_corners=False)
-        errors = self.mse_func(transformed_batch.flatten(1), dst_tensor.flatten(1)).mean(1)
-        rot_index = errors.argmin()
+        metric = self.eval_func(transformed_batch, dst_tensor).mean(-1)
+        rot_index = metric.argmax()
         rot = rot_batch[rot_index].detach().cpu().float()
-        return tx, ty, rot, scale
+        return tx1, ty1, rot, scale
     
     
 class HybridAffineSolver(BaseAffineSolver):

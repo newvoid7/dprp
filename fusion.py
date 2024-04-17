@@ -9,6 +9,7 @@ from tqdm import tqdm
 
 import paths
 from network.profen import ProFEN
+from network.tracknet import TrackNet
 from utils import (LABEL_CHARACTERIZER, 
                    RENDER4_CHARACTERIZER, 
                    RENDER_CHARACTERIZER, 
@@ -29,7 +30,7 @@ from pps import PPS
 
 
 restrictions = {
-    # azimuth should be in (-180, 180] degrees, elevation should be in [-90, 90] degrees.
+    # azimuth should be in [0, 360) degrees, elevation should be in [0, 180] degrees.
     # each lambda expression inputs a np.ndarray and outputs a bool np.ndarray
     'type1': {
         'description': 'The renal main axis is z=y, the renal hilum is face to (-1, -1, 0).',
@@ -53,8 +54,8 @@ restrictions = {
     },
     'type5': {
         'description': 'The renal main axis is z=y, the renal hilum is face to (1, -1, 0).',
-        'azimuth': lambda x: (x <= 60) | (225 <= x),
-        'zenith': lambda x: (90 <= x) & (x <= 150)
+        'azimuth': lambda x: (x <= 90) | (315 <= x),
+        'zenith': lambda x: (45 <= x) & (x <= 135)
     },
     'type6' :{
         'destription': 'The renal main axis is z=x, the renal hilum is face to (1, -1, 1).',
@@ -67,24 +68,29 @@ restrictions = {
 class Fuser:
     def __init__(self, 
                  case_type, 
-                 probe_group, 
-                 with_pps,
+                 probe_group: ProbeGroup, 
+                 with_pps: bool,
                  feature_extractor: torch.nn.Module = None, 
                  affine2d_solver: BaseAffineSolver = None,
-                 image_size=512):
+                 tracker: torch.nn.Module = None,
+                 image_size=512,
+                 first_label=None):
         """
         Do the preoperative and intraoperative image fusion.
         Args:
-            probes (list of Probe):
+            probes (ProbeGroup):
             feature_extractor (torch.nn.Module):
             affine2d_solver (BaseAffineSolver):
             image_size (int or tuple of int):
+            first_label (np.ndarray):
         """
         self.image_size = image_size
         self.feature_extractor = feature_extractor
         self.affine_solver = affine2d_solver
+        self.tracker = tracker
 
         probes = probe_group.probes
+        self.render_size = probe_group.render_size
         # (Np,)
         self.probe_azimuth = np.asarray([p.get_spcoord_dict()['azimuth'] for p in probes])
         # (Np,)
@@ -96,12 +102,12 @@ class Fuser:
         # to avoid CUDA OOM, should not input all of the rendered_2ch_pool as 1 batch into feature extractor
         self.feature_pool = []
         bs = 128
-        with torch.no_grad():
-            for i in range(len(self.rendered_2ch_pool) // bs + 1):
-                batch = np.asarray(self.rendered_2ch_pool[i * bs : min(i * bs + bs, len(self.rendered_2ch_pool))])
-                batch = torch.from_numpy(batch).cuda()
+        for i in range(len(self.rendered_2ch_pool) // bs + 1):
+            batch = np.asarray(self.rendered_2ch_pool[i * bs : min(i * bs + bs, len(self.rendered_2ch_pool))])
+            batch = torch.from_numpy(batch).cuda()
+            with torch.no_grad():
                 pred = self.feature_extractor(batch)
-                self.feature_pool.append(pred)
+            self.feature_pool.append(pred)
         self.feature_pool = torch.cat(self.feature_pool, dim=0)
 
         # PPS
@@ -116,9 +122,27 @@ class Fuser:
         # for re-render
         self.renderer = PRRenderer(probe_group.mesh_path, out_size=image_size)
         self.extra_rendered = [self.renderer.render(mat=p.get_matrix()) for p in probes]
+        
+        # crop the first label to a square with the same size of probe_group
+        self.last_label = np.stack([resize_to_fit(c, self.render_size, pad=False) for c in first_label], axis=0)
+        self.last_frame = None
+
+    def segmentation(self, new_frame):
+        if self.last_frame is None:
+            return self.last_label
+        else:
+            last_frame_tensor = cv2_to_tensor(resize_to_fit(self.last_frame, self.render_size, pad=False)).unsqueeze(0).cuda()
+            new_frame_tensor = cv2_to_tensor(resize_to_fit(new_frame, self.render_size, pad=False)).unsqueeze(0).cuda()
+            last_label_cv2 = np.stack([resize_to_fit(c, self.render_size, pad=False) for c in self.last_label], axis=0)
+            last_label_tensor = torch.from_numpy(last_label_cv2).unsqueeze(0).cuda()
+            with torch.no_grad():
+                new_label_tensor, _ = self.tracker(last_frame_tensor, new_frame_tensor, last_label_tensor)
+            new_label = new_label_tensor.squeeze().detach().cpu().numpy()
+            new_label = make_channels(new_label, [lambda x: (x[0] > 0.5) & (x[0] > x[1]), lambda x: (x[1] > 0.5) & (x[1] > x[0])])
+            return new_label
 
     @time_it
-    def process_frame(self, frame, segment_2ch):
+    def process_frame(self, frame):
         """
         Use the closest probe in the given range.
         Args:
@@ -129,11 +153,10 @@ class Fuser:
             dict:
                 'render' (np.ndarray): shape of (H, W, 3)
         """
-        seg_square_2ch = segment_2ch.transpose((1, 2, 0))
-        seg_square_2ch = resize_to_fit(seg_square_2ch, out_size=512, interp=cv2.INTER_NEAREST)
-        seg_square_2ch = seg_square_2ch.transpose((2, 0, 1))
+        seg_square_2ch = self.segmentation(frame)
         # find the best matching probe
-        seg_feature = self.feature_extractor(torch.from_numpy(seg_square_2ch).cuda().unsqueeze(0))
+        with torch.no_grad():
+            seg_feature = self.feature_extractor(torch.from_numpy(seg_square_2ch).cuda().unsqueeze(0))
         hit_index = self.pps.best(seg_feature)
         # registration src
         hit_render_2ch = self.rendered_2ch_pool[hit_index]
@@ -152,7 +175,10 @@ class Fuser:
             're-rendered': re_rendered,
             'affine matrix': affine_matrix,
             'transformed': transformed,
+            'segmentation': seg_square_2ch
         }
+        self.last_label = make_channels(transformed.detach().cpu().numpy(), RENDER4_CHARACTERIZER)
+        self.last_frame = frame
         return frame_info
 
 
@@ -191,11 +217,26 @@ def test(fold=0, n_fold=4, ablation=None, validation=False):
         # affine_solver = NetworkAffineSolver(weight_path=affine2d_path)
         affine_solver = GeometryAffineSolver()
 
+        # segmentation tracker
+        tracker_path = '{}/fold{}/tracknet/best.pth'.format(paths.WEIGHTS_DIR, fold)
+        tracker = TrackNet().cuda()
+        tracker.load_state_dict(torch.load(tracker_path))
+        tracker.eval()
+
         # case type
         if case_dataloader.prior_info is None:
             case_type = 'type1'
         else:
             case_type = case_dataloader.prior_info['type']
+        
+        # the first label
+        for l in case_dataloader.labels:
+            if l is None:
+                continue
+            else:
+                first_label = l
+                break
+        first_label = make_channels(first_label.transpose((2, 0, 1)), LABEL_CHARACTERIZER)
         
         # fuse
         fuser = Fuser(
@@ -204,7 +245,9 @@ def test(fold=0, n_fold=4, ablation=None, validation=False):
             case_type=case_type,
             feature_extractor=profen,
             affine2d_solver=affine_solver,
-            image_size=case_dataloader.image_size()
+            tracker=tracker,
+            image_size=case_dataloader.image_size(),
+            first_label=first_label
         )
 
         evaluations = {}
@@ -214,7 +257,7 @@ def test(fold=0, n_fold=4, ablation=None, validation=False):
             if orig_segment is None:                        # some frames do not have segmented labels
                 continue
             orig_seg_2ch = make_channels(orig_segment.transpose((2, 0, 1)), LABEL_CHARACTERIZER)
-            frame_info = fuser.process_frame(photo, orig_seg_2ch)
+            frame_info = fuser.process_frame(photo)
             cv2.imwrite('{}/{}'.format(fusion_dir, case_dataloader.fns[i]), frame_info['fusion'])
             transformed_2ch = frame_info['transformed']
             if isinstance(transformed_2ch, torch.Tensor):

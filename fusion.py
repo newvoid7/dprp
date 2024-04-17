@@ -153,9 +153,9 @@ class Fuser:
                 'render' (np.ndarray): shape of (H, W, 3)
         """
         seg_2ch = self.segmentation(frame)
+        seg_2ch[0] = seg_2ch.any(0)         # change it to non-one-hot
         # find the best matching probe
         seg_2ch_square = np.stack([resize_to_fit(s, self.render_size, pad=False) for s in seg_2ch], axis=0)
-        seg_2ch_square[0] = seg_2ch_square.any(0)   # ProFEN receive not one hot images
         with torch.no_grad():
             seg_feature = self.feature_extractor(torch.from_numpy(seg_2ch_square).cuda().unsqueeze(0))
         hit_index = self.pps.best(seg_feature)
@@ -168,6 +168,7 @@ class Fuser:
         fused = tensor_to_cv2(fused)
         # maintain last label and last frame
         self.last_label = moved
+        self.last_label[0] = self.last_label[0] & (~self.last_label[1])
         self.last_frame = frame
         # information
         fuse_info = {

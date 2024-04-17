@@ -1,6 +1,6 @@
 import cv2
 import numpy as np
-from utils import LABEL_GT_CHARACTERIZER, time_it, matmul_affine_matrices, evaluate_segmentation, make_channels
+from utils import LABEL_GT_CHARACTERIZER, time_it, matmul_affine_matrices, evaluate_segmentation, characterize
 
 
 class TrackerSubdiv:
@@ -149,8 +149,8 @@ if __name__ == '__main__':
         new_label = tracker.track_label(images[i])
         cv2.imwrite('tmp_label_{}.png'.format(i), new_label)
         metrics = evaluate_segmentation(
-            make_channels(new_label.transpose((2,0,1)), LABEL_GT_CHARACTERIZER),
-            make_channels(labels[i].transpose((2,0,1)), LABEL_GT_CHARACTERIZER)
+            characterize(new_label.transpose((2,0,1)), LABEL_GT_CHARACTERIZER),
+            characterize(labels[i].transpose((2,0,1)), LABEL_GT_CHARACTERIZER)
         )
         print(metrics)
     

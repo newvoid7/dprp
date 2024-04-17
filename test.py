@@ -12,8 +12,8 @@ import paths
 from probe import ProbeGroup
 from agent import AgentTask
 from utils import (RENDER_CHARACTERIZER, LABEL_GT_CHARACTERIZER, WHITE, YELLOW, 
-                   make_channels, 
-                   make_colorful,
+                   characterize, 
+                   colorize,
                    cosine_similarity, 
                    time_it, 
                    cv2_to_tensor, 
@@ -69,7 +69,7 @@ def test_profen(fold=0, n_fold=4, ablation=None):
         pps_filtered = torch.from_numpy(pps_filtered).cuda()
         
         # feature pool
-        image_pool = np.asarray([make_channels(p.render.transpose((2, 0, 1)), RENDER_CHARACTERIZER)
+        image_pool = np.asarray([characterize(p.render.transpose((2, 0, 1)), RENDER_CHARACTERIZER)
                                         for p in probes])
         image_pool = torch.from_numpy(image_pool)
         feature_pool = []
@@ -98,7 +98,7 @@ def test_profen(fold=0, n_fold=4, ablation=None):
                     i, t, a, z = case_dataloader.get_image()
                     if restriction['azimuth'](a / np.pi * 180) and restriction['zenith'](z / np.pi * 180):
                         break
-                i = make_channels(i.transpose((2, 0, 1)), RENDER_CHARACTERIZER)
+                i = characterize(i.transpose((2, 0, 1)), RENDER_CHARACTERIZER)
                 input.append(torch.from_numpy(i))
                 target.append(torch.from_numpy(t.copy()))
             input = torch.stack(input, dim=0).cuda()
@@ -135,7 +135,7 @@ def test_tracknet(fold=0, n_fold=4):
         images = [cv2_to_tensor(resize_to_fit(i, (400, 400))).unsqueeze(0) for i in images]
         labels = [cv2.imread(os.path.join(case_dir, 'label', fn)) for fn in fns]
         labels = [resize_to_fit(l, (400, 400), interp=cv2.INTER_NEAREST) if l is not None else None for l in labels]
-        labels = [make_channels(l.transpose((2, 0, 1)), LABEL_GT_CHARACTERIZER) if l is not None else None for l in labels]
+        labels = [characterize(l.transpose((2, 0, 1)), LABEL_GT_CHARACTERIZER) if l is not None else None for l in labels]
         # last_label = crop_patches(torch.from_numpy(labels[0]), (320, 320))
         first_label_idx = 0
         for i in range(len(labels)):
@@ -149,7 +149,7 @@ def test_tracknet(fold=0, n_fold=4):
                 pred_label, _ = tracknet(images[i + first_label_idx].cuda(), images[i + 1 + first_label_idx].cuda(), last_label.cuda())
             # pred_label_cv2 =  merge_patches((320, 320), size, pred_label).detach().cpu().numpy().squeeze()
             pred_label_cv2 = pred_label.detach().cpu().numpy().squeeze()
-            cv2.imwrite(os.path.join('tmp', c, fn), make_colorful(pred_label_cv2, (WHITE, YELLOW)))
+            cv2.imwrite(os.path.join('tmp', c, fn), colorize(pred_label_cv2, (WHITE, YELLOW)))
             if labels[i + 1] is not None:
                 metrics = evaluate_segmentation(pred_label_cv2, labels[i + 1])
                 ret_dict[c][fn] = metrics

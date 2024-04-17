@@ -102,16 +102,12 @@ LABEL_GT_CHARACTERIZER = [
     lambda x: x[2] != 0, 
     lambda x: x[1] != 0
 ]
-RENDER4_CHARACTERIZER = [
-    lambda x: x.any(0) & (x[0] < x[1] + x[2]) & (x[2] < x[0] + x[1]),
-    lambda x: (x[0] < 0.1) & (x[1] > 0.2) & (x[2] > 0.2)
-]
 LABEL_PRED_CHARACTERIZER = [
     lambda x: (x[0] > 0.5) & (x[0] > x[1]), 
     lambda x: (x[1] > 0.5) & (x[1] > x[0])
 ]
 
-def make_channels(img, conditions):
+def characterize(img, conditions):
     """
     Convert the given image to a multichannel np.ndarray
     Args:
@@ -126,7 +122,7 @@ def make_channels(img, conditions):
 WHITE = [255, 255, 255]
 YELLOW = [0, 255, 255]
 
-def make_colorful(img, colors, threshold=0.5):
+def colorize(img, colors, threshold=0.5):
     """
     Convert the one-hot image to 3-colored image, if all channel are 0, set color to (0, 0, 0).
     Args:

@@ -10,11 +10,11 @@ from tqdm import tqdm
 import paths
 from network.profen import ProFEN
 from network.tracknet import TrackNet
-from utils import (LABEL_CHARACTERIZER, 
-                   RENDER4_CHARACTERIZER, 
-                   RENDER_CHARACTERIZER, 
+from utils import (LABEL_GT_CHARACTERIZER, 
+                   RENDER_FLAT_CHARACTERIZER, 
+                   LABEL_PRED_CHARACTERIZER,
                    resize_to_fit, 
-                   make_channels, 
+                   characterize, 
                    time_it, 
                    images_alpha_lighten, 
                    cv2_to_tensor, 
@@ -84,26 +84,22 @@ class Fuser:
             image_size (int or tuple of int):
             first_label (np.ndarray):
         """
-        self.image_size = image_size
+        self.frame_size = image_size
         self.feature_extractor = feature_extractor
         self.affine_solver = affine2d_solver
         self.tracker = tracker
+        self.render_size = probe_group.render_size
 
         probes = probe_group.probes
-        self.render_size = probe_group.render_size
-        # (Np,)
+
         self.probe_azimuth = np.asarray([p.get_spcoord_dict()['azimuth'] for p in probes])
-        # (Np,)
         self.probe_zenith = np.asarray([p.get_spcoord_dict()['zenith'] for p in probes])
-        # (Np, 2, H, W)
-        self.rendered_2ch_pool = np.asarray([make_channels(p.render.transpose((2, 0, 1)), RENDER_CHARACTERIZER)
-                                            for p in probes])
-        # (Np, L) 
+        rendered_2ch_pool = np.asarray([characterize(p.render.transpose((2, 0, 1)), RENDER_FLAT_CHARACTERIZER) for p in probes])
         # to avoid CUDA OOM, should not input all of the rendered_2ch_pool as 1 batch into feature extractor
         self.feature_pool = []
         bs = 128
-        for i in range(len(self.rendered_2ch_pool) // bs + 1):
-            batch = np.asarray(self.rendered_2ch_pool[i * bs : min(i * bs + bs, len(self.rendered_2ch_pool))])
+        for i in range(len(rendered_2ch_pool) // bs + 1):
+            batch = np.asarray(rendered_2ch_pool[i * bs : min(i * bs + bs, len(rendered_2ch_pool))])
             batch = torch.from_numpy(batch).cuda()
             with torch.no_grad():
                 pred = self.feature_extractor(batch)
@@ -122,23 +118,26 @@ class Fuser:
         # for re-render
         self.renderer = PRRenderer(probe_group.mesh_path, out_size=image_size)
         self.extra_rendered = [self.renderer.render(mat=p.get_matrix()) for p in probes]
+        self.resized_rendered = [self.renderer.render(mat=p.get_matrix(), draw_mesh=probe_group.draw_mesh, mode='FLAT') for p in probes]
+        self.resized_rendered = [characterize(r.transpose((2, 0, 1)), RENDER_FLAT_CHARACTERIZER) for r in self.resized_rendered]
         
-        # crop the first label to a square with the same size of probe_group
-        self.last_label = np.stack([resize_to_fit(c, self.render_size, pad=False) for c in first_label], axis=0)
+        # last_label: np.ndarray (C=2, H, W)
+        self.last_label = first_label
         self.last_frame = None
 
-    def segmentation(self, new_frame):
+    def segmentation(self, new_frame, pad=True):
         if self.last_frame is None:
             return self.last_label
         else:
-            last_frame_tensor = cv2_to_tensor(resize_to_fit(self.last_frame, self.render_size, pad=False)).unsqueeze(0).cuda()
-            new_frame_tensor = cv2_to_tensor(resize_to_fit(new_frame, self.render_size, pad=False)).unsqueeze(0).cuda()
-            last_label_cv2 = np.stack([resize_to_fit(c, self.render_size, pad=False) for c in self.last_label], axis=0)
+            last_frame_tensor = cv2_to_tensor(resize_to_fit(self.last_frame, self.render_size, pad=pad)).unsqueeze(0).cuda()
+            new_frame_tensor = cv2_to_tensor(resize_to_fit(new_frame, self.render_size, pad=pad)).unsqueeze(0).cuda()
+            last_label_cv2 = np.stack([resize_to_fit(c, self.render_size, pad=pad) for c in self.last_label], axis=0)
             last_label_tensor = torch.from_numpy(last_label_cv2).unsqueeze(0).cuda()
             with torch.no_grad():
                 new_label_tensor, _ = self.tracker(last_frame_tensor, new_frame_tensor, last_label_tensor)
             new_label = new_label_tensor.squeeze().detach().cpu().numpy()
-            new_label = make_channels(new_label, [lambda x: (x[0] > 0.5) & (x[0] > x[1]), lambda x: (x[1] > 0.5) & (x[1] > x[0])])
+            new_label = characterize(new_label, LABEL_PRED_CHARACTERIZER)
+            new_label = np.stack([resize_to_fit(c, self.frame_size, pad=not pad) for c in new_label], axis=0)
             return new_label
 
     @time_it
@@ -153,33 +152,37 @@ class Fuser:
             dict:
                 'render' (np.ndarray): shape of (H, W, 3)
         """
-        seg_square_2ch = self.segmentation(frame)
+        seg_2ch = self.segmentation(frame)
         # find the best matching probe
+        seg_2ch_square = np.stack([resize_to_fit(s, self.render_size, pad=False) for s in seg_2ch], axis=0)
+        seg_2ch_square[0] = seg_2ch_square.any(0)   # ProFEN receive not one hot images
         with torch.no_grad():
-            seg_feature = self.feature_extractor(torch.from_numpy(seg_square_2ch).cuda().unsqueeze(0))
+            seg_feature = self.feature_extractor(torch.from_numpy(seg_2ch_square).cuda().unsqueeze(0))
         hit_index = self.pps.best(seg_feature)
-        # registration src
-        hit_render_2ch = self.rendered_2ch_pool[hit_index]
-        # re-render with additional information, registration new_in
-        re_rendered = self.extra_rendered[hit_index]
-        # new_out
-        transformed, affine_matrix = self.affine_solver.solve_and_affine(hit_render_2ch, seg_square_2ch, re_rendered)
+        # registration from moving -> fixed, apply it on source
+        moving = self.resized_rendered[hit_index]
+        source = self.extra_rendered[hit_index]
+        dst, mat, moved = self.affine_solver.solve_and_affine(moving, seg_2ch, source)
         # fuse
-        fused = images_alpha_lighten(cv2_to_tensor(frame).cuda(), transformed, 0.5)
+        fused = images_alpha_lighten(cv2_to_tensor(frame).cuda(), dst, 0.5)
         fused = tensor_to_cv2(fused)
-        # information
-        frame_info = {
-            'original': frame,
-            'fusion': fused,
-            'hit index': hit_index,
-            're-rendered': re_rendered,
-            'affine matrix': affine_matrix,
-            'transformed': transformed,
-            'segmentation': seg_square_2ch
-        }
-        self.last_label = make_channels(transformed.detach().cpu().numpy(), RENDER4_CHARACTERIZER)
+        # maintain last label and last frame
+        self.last_label = moved
         self.last_frame = frame
-        return frame_info
+        # information
+        fuse_info = {
+            'fused image': fused,       # np.ndarray (H, W, [BGR])
+            'original': frame,
+            'segmentation': seg_2ch,    # np.ndarray (C=2, H, W)
+            'probe index': hit_index,   
+            'matrix': mat,              # torch.Tensor (2, 3)
+            'moving image': moving,     # np.ndarray (C=2, H, W)
+            'fixed image': seg_2ch,     # same as segmentation
+            'moved image': moved,       # np.ndarray (C=2, H, W)
+            'source image': source,     # np.ndarray (H, W, [BGR])
+            'destination image': dst    # np.ndarray (H, W, [BGR])
+        }
+        return fuse_info
 
 
 def test(fold=0, n_fold=4, ablation=None, validation=False):
@@ -211,10 +214,6 @@ def test(fold=0, n_fold=4, ablation=None, validation=False):
         profen.eval()
         
         # affine 2d solver
-        # affine2d_weight_dir = 'affine2d' if ablation is None or ablation == 'wo_pps' else 'affine2d_' + ablation
-        # affine2d_path = '{}/fold{}/{}/best.pth'.format(paths.WEIGHTS_DIR, fold, affine2d_weight_dir)
-        # affine_solver = HybridAffineSolver(weight_path=affine2d_path)
-        # affine_solver = NetworkAffineSolver(weight_path=affine2d_path)
         affine_solver = GeometryAffineSolver()
 
         # segmentation tracker
@@ -230,13 +229,14 @@ def test(fold=0, n_fold=4, ablation=None, validation=False):
             case_type = case_dataloader.prior_info['type']
         
         # the first label
-        for l in case_dataloader.labels:
-            if l is None:
-                continue
+        first_idx = 0
+        for first_idx in range(len(case_dataloader.labels)):
+            if case_dataloader.labels[first_idx] is None:
+                first_idx += 1
             else:
-                first_label = l
                 break
-        first_label = make_channels(first_label.transpose((2, 0, 1)), LABEL_CHARACTERIZER)
+        first_label = case_dataloader.labels[first_idx]
+        first_label = characterize(first_label.transpose((2, 0, 1)), LABEL_GT_CHARACTERIZER)
         
         # fuse
         fuser = Fuser(
@@ -251,21 +251,17 @@ def test(fold=0, n_fold=4, ablation=None, validation=False):
         )
 
         evaluations = {}
-        for i in tqdm(iterable=range(case_dataloader.length()), desc='Fusion of case {}'.format(case_id)):
+        for i in tqdm(iterable=range(first_idx, case_dataloader.length()), 
+                      desc='Fusion of case {}'.format(case_id)):
             photo = case_dataloader.images[i]
-            orig_segment = case_dataloader.labels[i]
-            if orig_segment is None:                        # some frames do not have segmented labels
-                continue
-            orig_seg_2ch = make_channels(orig_segment.transpose((2, 0, 1)), LABEL_CHARACTERIZER)
-            frame_info = fuser.process_frame(photo)
-            cv2.imwrite('{}/{}'.format(fusion_dir, case_dataloader.fns[i]), frame_info['fusion'])
-            transformed_2ch = frame_info['transformed']
-            if isinstance(transformed_2ch, torch.Tensor):
-                transformed_2ch = transformed_2ch.detach().cpu().numpy()
-            transformed_2ch = make_channels(transformed_2ch, RENDER4_CHARACTERIZER)                                               # transformed has some other colors
-            metrics = evaluate_segmentation(transformed_2ch, orig_seg_2ch)
-            evaluations[case_dataloader.fns[i]] = metrics
-            # print('Case: {} Frame: {} is OK.'.format(case_id, case_dataloader.fns[i]))
+            fuse_info = fuser.process_frame(photo)
+            cv2.imwrite('{}/{}'.format(fusion_dir, case_dataloader.fns[i]), fuse_info['fused image'])
+            segment_gt = case_dataloader.labels[i]
+            if segment_gt is not None:
+                seg_gt_2ch = characterize(segment_gt.transpose((2, 0, 1)), LABEL_GT_CHARACTERIZER)
+                metrics = evaluate_segmentation(fuse_info['destination image'], seg_gt_2ch)
+                evaluations[case_dataloader.fns[i]] = metrics
+                # print('Case: {} Frame: {} is OK.'.format(case_id, case_dataloader.fns[i]))
         evaluations['average'] = {
             channel: {
                 metric: np.asarray([case_value[channel][metric] for case_value in evaluations.values()]).mean()

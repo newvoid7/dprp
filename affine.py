@@ -12,63 +12,47 @@ class BaseAffineSolver:
     def __init__(self) -> None:
         return
     
-    def solve(self, src: np.ndarray, dst: np.ndarray):
+    def solve(self, moving: np.ndarray, fixed: np.ndarray) -> tuple[torch.Tensor, np.ndarray]:
         """
         Compute the affine factor from src to dst, assuming they are square.
         Args:
-            src (np.ndarray): (C=2, H, W), values are 0 or 1
-            dst (np.ndarray): (C=2, H, W), values are 0 or 1
+            moving (np.ndarray): (C=2, H, W), values are 0 or 1
+            fixed (np.ndarray): (C=2, H, W), values are 0 or 1
         Returns:
-            (float, float, float, float): tx, ty, rot, scale
+            mat (torch.Tensor): sample matrix
+            moved (np.ndarray): (C=2, H, W)
         """
         pass
     
-    def apply(self, mat, _in, return_tensor=True):
-        new_in_tensor = cv2_to_tensor(_in).unsqueeze(0).cuda()
-        grid = nnf.affine_grid(mat, new_in_tensor.size(), align_corners=False).cuda()
-        transformed = nnf.grid_sample(new_in_tensor, grid, mode='bilinear', align_corners=False).squeeze()
+    def apply(self, mat, src, return_tensor=True, mode='bilinear'):
+        """
+        Args:
+            src (np.nadarry): (from cv2)
+        """
+        new_in_tensor = cv2_to_tensor(src).unsqueeze(0).cuda()
+        grid = nnf.affine_grid(mat.unsqueeze(0), new_in_tensor.size(), align_corners=False).cuda()
+        transformed = nnf.grid_sample(new_in_tensor, grid, mode=mode, align_corners=False).squeeze()
         if not return_tensor:
             transformed = tensor_to_cv2(transformed)
         return transformed
     
     @time_it
-    def solve_and_affine(self, src: np.ndarray, dst: np.ndarray, new_in: np.ndarray, return_tensor=True):
+    def solve_and_affine(self, moving: np.ndarray, fixed: np.ndarray, src: np.ndarray, return_tensor=True):
         """
-        Solve the affine transform factors from src to dst (assume they are square images), and apply it on new_in.
-        Consider new_in as a non-square image.
-        To keep same with torch, not using transformation in cv2.
+        Solve the affine transform factors from moving to fixed, and apply it on src.
+        Assume fixed and moving are square images, but src is might not.
+        Use torch affine rather than cv2.
         Args:
-            src (np.ndarray): (C=2, H, W), values are 0 or 1
-            dst (np.ndarray): (C=2, H, W), values are 0 or 1
-            new_in (np.ndarray): from cv2, (H', W', C'(BGR))
+            fixed (np.ndarray): (C=2, H, W), values are 0 or 1
+            moving (np.ndarray): (C=2, H, W), values are 0 or 1
+            src (np.ndarray): from cv2, (H', W', C'(BGR))
+            is_pad (bool): whether the moving image is padded from src
         Returns:
-            np.ndarray: (H', W', C'(BGR))
+            dst (np.ndarray): (H', W', C'(BGR))
         """
-        tx, ty, rot, scale = self.solve(src, dst)
-        inv_s = 1.0 / scale
-        cos_a = math.cos(rot)
-        sin_a = math.sin(rot)
-        r = new_in.shape[0] / new_in.shape[1]
-        l_w = min(new_in.shape[0], new_in.shape[1]) / new_in.shape[1]
-        l_h = min(new_in.shape[0], new_in.shape[1]) / new_in.shape[0]
-        '''
-        Like Affine2dTransformer in transform.py, but consider the new_in is a padded result of src.
-        The normalized coordinates is based on the smaller value of height and width (defined as l).
-        Therefore, firstly mapping the normalized coordinate to real-world coordinate (pixels), which is 
-            (x, y) -> (wx, hy)
-        Then mapping the translation factor to pixel too, which is 
-            (tx, ty) -> (l * tx, l * ty)
-        Then apply the original inverse matrix (in Affine2dTransformer).
-        Lastly, map the transformed coordinate back to normalized coordinate.
-        In short, the matrix M' should statisfy:
-            M' * (x, y) = (M[0], l*tx; M[1], l*ty) * (wx, hy) / (w, h)
-        '''
-        mat = torch.tensor([[
-            [inv_s * cos_a, inv_s * sin_a * r, -inv_s * (tx * cos_a + ty * sin_a) * l_w],
-            [-inv_s * sin_a / r, inv_s * cos_a, inv_s * (tx * sin_a - ty * cos_a) * l_h]
-        ]], dtype=torch.float32).cuda()
-        transformed = self.apply(mat, new_in)
-        return transformed, mat
+        mat, moved = self.solve(moving, fixed)
+        dst = self.apply(mat, src, return_tensor)
+        return dst, mat, moved
 
 
 class NetworkAffineSolver(BaseAffineSolver):
@@ -127,20 +111,16 @@ class GeometryAffineSolver(BaseAffineSolver):
             centerw = centerw / width * 2 - 1
         return centerh, centerw
     
-    def solve(self, src: np.ndarray, dst: np.ndarray):
-        # centerh_src_0, centerw_src_0 = self.centroid(src[0])
-        # centerh_src_1, centerw_src_1 = self.centroid(src[1])
-        # centerh_dst_0, centerw_dst_0 = self.centroid(dst[0])
-        # centerh_dst_1, centerw_dst_1 = self.centroid(dst[1])
-        centerh_src, centerw_src = self.centroid(src.sum(0))
-        centerh_dst, centerw_dst = self.centroid(dst.sum(0))
-        # tx = (centerw_dst_0 - centerw_src_0 + centerw_dst_1 - centerw_src_1) / 2
-        # ty = (centerh_dst_0 - centerh_src_0 + centerh_dst_1 - centerh_src_1) / 2
-        tx0 = -centerw_src
-        ty0 = -centerh_src
-        tx1 = centerw_dst
-        ty1 = centerh_dst
-        scale = (dst.sum() / src.sum()) ** 0.5
+    def solve(self, moving: np.ndarray, fixed: np.ndarray):
+        centerh_src_0, centerw_src_0 = self.centroid(moving[0])
+        centerh_src_1, centerw_src_1 = self.centroid(moving[1])
+        centerh_dst_0, centerw_dst_0 = self.centroid(fixed[0])
+        centerh_dst_1, centerw_dst_1 = self.centroid(fixed[1])
+        tx0 = -centerw_src_0
+        ty0 = -centerh_src_0
+        tx1 = centerw_dst_0
+        ty1 = centerh_dst_0
+        scale = (fixed[1].sum() / moving[1].sum()) ** 0.5
         inv_s = 1.0 / scale
         rot_batch = torch.arange(0, 360, 1, dtype=torch.float32, device='cuda') / 180 * torch.pi
         '''
@@ -159,14 +139,13 @@ class GeometryAffineSolver(BaseAffineSolver):
         mat0_batch = torch.stack((mat00_batch, mat01_batch, mat02_batch), dim=1)
         mat1_batch = torch.stack((-mat01_batch, mat00_batch, mat12_batch), dim=1)
         mat_batch = torch.stack((mat0_batch, mat1_batch), dim=1)
-        src_tensor = torch.from_numpy(src).cuda().unsqueeze(0).repeat(len(rot_batch), 1, 1, 1)
-        dst_tensor = torch.from_numpy(dst).cuda()
-        grid_batch = nnf.affine_grid(mat_batch, src_tensor.size(), align_corners=False)
-        transformed_batch = nnf.grid_sample(src_tensor, grid_batch, mode='nearest', align_corners=False)
-        metric = self.eval_func(transformed_batch, dst_tensor).mean(-1)
-        rot_index = metric.argmax()
-        rot = rot_batch[rot_index].detach().cpu().float()
-        return tx1, ty1, rot, scale
+        moving_tensor = torch.from_numpy(moving).cuda().unsqueeze(0).repeat(len(rot_batch), 1, 1, 1)
+        fixed_tensor = torch.from_numpy(fixed).cuda()
+        grid_batch = nnf.affine_grid(mat_batch, moving_tensor.size(), align_corners=False)
+        dst_batch = nnf.grid_sample(moving_tensor, grid_batch, mode='nearest', align_corners=False)
+        metric = self.eval_func(dst_batch, fixed_tensor).mean(-1)
+        opt_idx = metric.argmax()
+        return mat_batch[opt_idx], dst_batch[opt_idx].detach().cpu().numpy()
     
     
 class HybridAffineSolver(BaseAffineSolver):

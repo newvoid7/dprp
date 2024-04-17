@@ -6,7 +6,7 @@ from batchgenerators.dataloading.data_loader import SlimDataLoaderBase
 import numpy as np
 import cv2
 
-from utils import LABEL_GT_CHARACTERIZER, RENDER_CHARACTERIZER, cosine_similarity, characterize, normalize_vec
+from utils import LABEL_GT_CHARACTERIZER, RENDER_FLAT_CHARACTERIZER, cosine_similarity, characterize, normalize_vec
 from probe import Probe, DEFAULT_UP, ProbeGroup
 import paths
 from render import PRRenderer
@@ -69,7 +69,7 @@ class ProbeSingleCaseDataloader(SlimDataLoaderBase):
         else:
             probes = [self._data[case_id][np.random.randint(len(self._data[case_id]))] for _ in range(self.batch_size)]
         data = {
-            'data': np.asarray([characterize(p.render.transpose((2, 0, 1)), RENDER_CHARACTERIZER) for p in probes]),
+            'data': np.asarray([characterize(p.render.transpose((2, 0, 1)), RENDER_FLAT_CHARACTERIZER) for p in probes]),
             'position': np.asarray([p.get_eye() for p in probes])
         }
         return data

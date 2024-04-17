@@ -43,6 +43,8 @@ class PRRenderer:
         self.meshes = [pyrender.Mesh.from_trimesh(m) for m in orig_mesh.geometry.values()]
         self.camera = pyrender.PerspectiveCamera(yfov=np.pi / 3, aspectRatio=ratio)
         self.light = pyrender.DirectionalLight(color=[1.0, 1.0, 1.0])
+        # The normalization is based on all meshes, 
+        # therefore the images will coincide no matter drawing which mesh
         if normalize:                                           # scale to a unit box, centered at origin
             scale = 2.0 / orig_mesh.bounding_box.extents.max()  # axis equally scale
             translation = -orig_mesh.bounding_box.centroid
@@ -115,16 +117,16 @@ class PRRenderer:
         return render_output
 
     def __del__(self):
-        # print('The renderer is destroyed.')
         self.renderer.delete()
+        # print('The renderer is destroyed.')
 
 
 if __name__ == '__main__':
     os.environ['PYOPENGL_PLATFORM'] = 'egl'
     from probe import Probe
     temp_probe = Probe(mesh_path=None, eye=[0, 3.5, 0], focus=[0, 0, 0], up=[0, 0, 1]);
-    mat = temp_probe.get_matrix();
+    mat = temp_probe.get_matrix()
     temp_renderer = PRRenderer(os.path.join(paths.DATASET_DIR, paths.ALL_CASES[0], paths.MESH_FILENAME), out_size=(576, 720))
     out_rgb = temp_renderer.render(mat, mode='FLAT', draw_mesh=[0,1])
-    cv2.imwrite('results/flat.png', out_rgb[..., ::-1])
+    cv2.imwrite('tmp/flat.png', out_rgb[..., ::-1])
     print('ok')

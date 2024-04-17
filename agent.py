@@ -16,7 +16,7 @@ class AgentTask:
         occlusion_paths = [os.path.join(occlusion_dir, fn) for fn in os.listdir(occlusion_dir)
                            if fn.endswith('.png') or fn.endswith('.jpg')]
         self.occlusions = [cv2.imread(p, cv2.IMREAD_GRAYSCALE) for p in occlusion_paths]
-        self.occlusions = [resize_to_fit(o, out_size=512) for o in self.occlusions]
+        self.occlusions = [resize_to_fit(o, out_size=512, pad=False) for o in self.occlusions]
         self.occlusions = [cv2_to_tensor(o) for o in self.occlusions]
         # self.transformer = Affine2dTransformer()
         self.real_params = None

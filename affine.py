@@ -47,7 +47,7 @@ class BaseAffineSolver:
             fixed (np.ndarray): (C=2, H, W), values are 0 or 1
             moving (np.ndarray): (C=2, H, W), values are 0 or 1
             src (np.ndarray): from cv2, (H', W', C'(BGR))
-            is_pad (bool): whether the moving image is padded from src
+            return_tensor (bool): whether the moving image is padded from src
         Returns:
             dst (np.ndarray): (H', W', C'(BGR))
         """
@@ -113,14 +113,12 @@ class GeometryAffineSolver(BaseAffineSolver):
         return centerh, centerw
     
     def solve(self, moving: np.ndarray, fixed: np.ndarray):
-        centerh_src_0, centerw_src_0 = self.centroid(moving[0])
-        centerh_src_1, centerw_src_1 = self.centroid(moving[1])
-        centerh_dst_0, centerw_dst_0 = self.centroid(fixed[0])
-        centerh_dst_1, centerw_dst_1 = self.centroid(fixed[1])
-        tx0 = -centerw_src_0
-        ty0 = -centerh_src_0
-        tx1 = centerw_dst_0
-        ty1 = centerh_dst_0
+        centerh_src, centerw_src = self.centroid(moving.sum(0))
+        centerh_dst, centerw_dst = self.centroid(fixed.sum(0))
+        tx0 = -centerw_src
+        ty0 = -centerh_src
+        tx1 = centerw_dst
+        ty1 = centerh_dst
         scale = (fixed[1].sum() / moving[1].sum()) ** 0.5
         inv_s = 1.0 / scale
         rot_batch = torch.arange(0, 360, 1, dtype=torch.float32, device='cuda') / 180 * torch.pi

@@ -153,7 +153,6 @@ class Fuser:
                 'render' (np.ndarray): shape of (H, W, 3)
         """
         seg_2ch = self.segmentation(frame)
-        seg_2ch[0] = seg_2ch.any(0)         # change it to non-one-hot
         # find the best matching probe
         seg_2ch_square = np.stack([resize_to_fit(s, self.render_size, pad=False) for s in seg_2ch], axis=0)
         with torch.no_grad():
@@ -168,7 +167,6 @@ class Fuser:
         fused = tensor_to_cv2(fused)
         # maintain last label and last frame
         self.last_label = moved
-        self.last_label[0] = self.last_label[0] & (~self.last_label[1])
         self.last_frame = frame
         # information
         fuse_info = {
@@ -260,7 +258,7 @@ def test(fold=0, n_fold=4, ablation=None, validation=False):
             segment_gt = case_dataloader.labels[i]
             if segment_gt is not None:
                 seg_gt_2ch = characterize(segment_gt.transpose((2, 0, 1)), LABEL_GT_CHARACTERIZER)
-                metrics = evaluate_segmentation(fuse_info['destination image'], seg_gt_2ch)
+                metrics = evaluate_segmentation(fuse_info['moved image'], seg_gt_2ch)
                 evaluations[case_dataloader.fns[i]] = metrics
                 # print('Case: {} Frame: {} is OK.'.format(case_id, case_dataloader.fns[i]))
         evaluations['average'] = {

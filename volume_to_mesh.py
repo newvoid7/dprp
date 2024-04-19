@@ -5,6 +5,7 @@ import numpy as np
 from vtk.util.numpy_support import vtk_to_numpy, numpy_to_vtk
 
 import paths
+from utils import RENDER_LUT
 
 
 class VTKRenderer:
@@ -16,13 +17,7 @@ class VTKRenderer:
             'vein': 1,
             'artery': 4
         }
-        self.lut = {
-            # (R, G, B), values in [0, 1]
-            'kidney': (1, 1, 1),
-            'tumor': (1, 1, 0),
-            'vein': (0, 0, 1),
-            'artery': (1, 0, 0)
-        }
+        self.lut = RENDER_LUT
 
         if self.file_path.endswith('.mhd'):
             reader = vtk.vtkMetaImageReader()

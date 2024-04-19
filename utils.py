@@ -78,27 +78,25 @@ def resize_to_fit(img, out_size, pad=True, pad_color=(0, 0, 0), interp=cv2.INTER
     return _out
 
 
-def make_grayscale(img):
-    """
-    Args:
-        img (np.ndarray): shape of (H, W, 3)
-    Returns:
-        np.ndarray: shape of (H, W), non-[0, 0, 0] are set to 1
-    """
-    assert len(img.shape) == 3 and img.shape[2] == 3
-    _out = np.zeros((img.shape[0], img.shape[1])).astype(np.float32)
-    _out[img.sum(2) != 0] = 1
-    return _out
-
+"""
+Which color that each part should be shadered. 
+Influence `volume_to_mesh.py` and `RENDER_FLAT_CHARACTERIZER`
+"""
+RENDER_LUT = {
+    # (R, G, B), values in [0, 1]
+    'kidney': (1, 1, 1),
+    'tumor': (1, 1, 0),
+    'vein': (0, 0, 1),
+    'artery': (1, 0, 0)
+}
 
 """
 Pre-define some characterizer for `characterize` parameter `conditions`
 """
 RENDER_FLAT_CHARACTERIZER = [
-    # caution: RGB rather than BGR
-    # caution: result not one-hot
-    lambda x: x.sum(0) != 0,
-    lambda x: (x[2] == 0) & (x.any(0))
+    # influenced by RENDER_LUT
+    lambda x: (x.any(0)) & (x[0] != 0),
+    lambda x: (x.any(0)) & (x[0] == 0)
 ]
 LABEL_GT_CHARACTERIZER = [
     lambda x: x[2] != 0, 
@@ -113,9 +111,10 @@ def characterize(img, conditions):
     """
     Convert the given image to a multichannel np.ndarray
     Args:
-        img(np.ndarray): shape of (C=3, H, W)
+        img(np.ndarray): shape of (C=3[BGR], H, W), for labels loaded, probe rendered, network output
         conditions (list of lambda): each element is a channel condition,
-            which returns a (H, W) bool array.
+            which returns a (H, W) bool array. 
+            The conditions no more than 1 can be satisfied simultaneously
     Returns:
         np.ndarray: dtype=np.float32, shape of (len(conditions), H, W), value of 0/1
     """

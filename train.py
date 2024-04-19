@@ -13,7 +13,7 @@ from network.profen import ProFEN
 from network.tracknet import TrackNet
 from network.transform import Affine2dPredictor, Affine2dPredictorSlim, Affine2dTransformer
 from network.loss import RefInfoNCELoss, InfoNCELoss
-from dataloaders import ProbeSingleCaseDataloader, TrackLabelDataloader
+from dataloaders import ProbeDataloader, TrackLabelDataloader
 from probe import ProbeGroup
 from utils import time_it
 from agent import AgentTask
@@ -126,8 +126,7 @@ class ProfenTrainer(BaseTrainer):
         if ablation is not None and ablation.startswith('div_'):
             for pg in probe_groups:
                 pg.sparse(factor=int(ablation[4:]))
-        probes = [pg.probes for pg in probe_groups]
-        self.dataloader = ProbeSingleCaseDataloader(probes=probes, batch_size=batch_size)
+        self.dataloader = ProbeDataloader(probe_groups=probe_groups, batch_size=batch_size)
         self.batch_size = batch_size
         n_iter = self.dataloader.num_total // batch_size
         self.agent = AgentTask(occlusion_dir=paths.MASK_DIR)
@@ -158,8 +157,7 @@ class Affine2DTrainer(BaseTrainer):
         if ablation is not None and ablation.startswith('div_'):
             for pg in probe_groups:
                 pg.sparse(factor=int(ablation[4:]))
-        probes = [pg.probes for pg in probe_groups]
-        self.dataloader = ProbeSingleCaseDataloader(probes=probes, batch_size=batch_size)
+        self.dataloader = ProbeDataloader(probe_groups=probe_groups, batch_size=batch_size)
         self.batch_size = batch_size
         n_iter = self.dataloader.num_total // batch_size
         self.agent = AgentTask(occlusion_dir=paths.MASK_DIR)

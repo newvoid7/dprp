@@ -1,6 +1,6 @@
-from calendar import setfirstweekday
 import os
 import json
+from typing import List
 
 from batchgenerators.dataloading.data_loader import SlimDataLoaderBase
 import numpy as np
@@ -27,7 +27,7 @@ def set_fold(fold, num_all_folds):
     return train_cases, test_cases
 
 
-class ProbeSingleCaseDataloader(SlimDataLoaderBase):
+class ProbeDataloader(SlimDataLoaderBase):
     """
     Generate a batch of images, they are in the same case, and on the same side to avoid false negative pair.
     False negative pair: a pair of probes on 2 distant positions,
@@ -35,17 +35,29 @@ class ProbeSingleCaseDataloader(SlimDataLoaderBase):
         It is very hard to tell that they are rendered from a negative pair, if we have only the 2 images,
         so we need to avoid generating these pairs.
     """
-    def __init__(self, probes, batch_size=8, batch_same_side=True, num_threads=None):
+    def __init__(self, probe_groups: List[ProbeGroup], batch_size=8, batch_same_side=True, num_threads=None):
         """
         Args:
             probes (list of (list of Probe)): list of case, each case is a number of probes.
             batch_size (int):
             num_threads:
         """
-        self.num_cases = len(probes)
-        self.num_total = sum([len(p) for p in probes])
+        self.num_cases = len(probe_groups)
+        self.num_total = sum([pg.amount for pg in probe_groups])
         self.batch_same_side = batch_same_side
-        super(ProbeSingleCaseDataloader, self).__init__(probes, batch_size, num_threads)
+        renders = [
+            [characterize(p.render.transpose((2, 0, 1)), RENDER_FLAT_CHARACTERIZER) for p in pg.probes]
+            for pg in probe_groups
+        ]
+        positions = [
+            [p.get_eye() for p in pg.probes]
+            for pg in probe_groups
+        ]
+        data = {
+            'renders': renders,
+            'positions': positions
+        }
+        super(ProbeDataloader, self).__init__(data, batch_size, num_threads)
 
     def generate_train_batch(self):
         """
@@ -56,21 +68,25 @@ class ProbeSingleCaseDataloader(SlimDataLoaderBase):
         """
         case_id = np.random.randint(self.num_cases)
         if self.batch_same_side:
-            first = self._data[case_id][np.random.randint(len(self._data[case_id]))]
-            probes = [first]
+            first_id = np.random.randint(len(self._data['positions'][case_id]))
+            first_pos = self._data['positions'][case_id][first_id]
+            images = [self._data['renders'][case_id][first_id]]
+            positions = [first_pos]
             for _ in range(1, self.batch_size):
                 same_side = False
                 while not same_side:
-                    image_id = np.random.randint(len(self._data[case_id]))
-                    this = self._data[case_id][image_id]
-                    if cosine_similarity(first.get_eye(), this.get_eye()) >= 0:
+                    probe_id = np.random.randint(len(self._data['positions'][case_id]))
+                    this_pos = self._data['positions'][case_id][probe_id]
+                    if cosine_similarity(first_pos, this_pos) >= 0:
                         same_side = True
-                probes.append(this)
+                images.append(self._data['renders'][case_id][probe_id])
         else:
-            probes = [self._data[case_id][np.random.randint(len(self._data[case_id]))] for _ in range(self.batch_size)]
+            indices = [np.random.randint(len(self._data['renders'][case_id])) for _ in range(self.batch_size)]
+            images = [self._data['renders'][case_id][i] for i in indices]
+            positions = [self._data['positions'][case_id][i] for i in indices]
         data = {
-            'data': np.asarray([characterize(p.render.transpose((2, 0, 1)), RENDER_FLAT_CHARACTERIZER) for p in probes]),
-            'position': np.asarray([p.get_eye() for p in probes])
+            'data': np.stack(images, axis=0),
+            'position': np.stack(positions, axis=0)
         }
         return data
     

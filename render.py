@@ -85,7 +85,7 @@ class PRRenderer:
                 3: artery.
                 None: all
                 See `volume_to_mesh.py`
-            mode (str):
+            mode (str): FLAT means RGB
         Returns:
             np.ndarray: shape of (H, W, [RGB] or mode indicated), dtype=np.uint8
         """

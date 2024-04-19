@@ -1,4 +1,5 @@
 import math
+from typing import Tuple
 
 import torch
 import torch.nn.functional as nnf
@@ -12,7 +13,7 @@ class BaseAffineSolver:
     def __init__(self) -> None:
         return
     
-    def solve(self, moving: np.ndarray, fixed: np.ndarray) -> tuple[torch.Tensor, np.ndarray]:
+    def solve(self, moving: np.ndarray, fixed: np.ndarray) -> Tuple[torch.Tensor, np.ndarray]:
         """
         Compute the affine factor from src to dst, assuming they are square.
         Args:

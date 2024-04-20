@@ -118,7 +118,7 @@ class Fuser:
         # for re-render
         self.renderer = PRRenderer(probe_group.mesh_path, out_size=image_size)
         self.extra_rendered = [self.renderer.render(mat=p.get_matrix()) for p in probes]
-        self.resized_rendered = [self.renderer.render(mat=p.get_matrix(), draw_mesh=probe_group.draw_mesh, mode='FLAT') for p in probes]
+        self.resized_rendered = [self.renderer.render(mat=p.get_matrix(), draw_mesh=probe_group.draw_mesh, mode='FLAT')[..., ::-1] for p in probes]
         self.resized_rendered = [characterize(r.transpose((2, 0, 1)), RENDER_FLAT_CHARACTERIZER) for r in self.resized_rendered]
         
         # last_label: np.ndarray (C=2, H, W)

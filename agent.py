@@ -34,7 +34,7 @@ class AgentTask:
         transform = transforms.Compose([
             transforms.RandomRotation(degrees=40, interpolation=transforms.InterpolationMode.NEAREST),
             # for RandomResizedCrop, the scale is based on area
-            transforms.RandomResizedCrop(size=512, scale=(0.2, 1.1), ratio=(1.0, 1.0),
+            transforms.RandomResizedCrop(size=512, scale=(0.25, 1.414), ratio=(1.0, 1.0),
                                          interpolation=transforms.InterpolationMode.NEAREST)
         ])
         i = transform(i)

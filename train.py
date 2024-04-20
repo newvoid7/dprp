@@ -12,7 +12,7 @@ from batchgenerators.transforms.spatial_transforms import SpatialTransform
 from network.profen import ProFEN
 from network.tracknet import TrackNet
 from network.transform import Affine2dPredictor, Affine2dPredictorSlim, Affine2dTransformer
-from network.loss import RefInfoNCELoss, InfoNCELoss
+from network.loss import GradientLoss, InfoNCELoss
 from dataloaders import ProbeDataloader, TrackLabelDataloader
 from probe import ProbeGroup
 from utils import time_it
@@ -193,8 +193,8 @@ class TrackNetTrainer(BaseTrainer):
         self.augmenter = MultiThreadedAugmenter(self.dataloader, self.transform, num_processes=4)
         self.batch_size = batch_size
         n_iter = self.dataloader.num_total // batch_size
-        self.loss_func_cycle = MSELoss()
         self.loss_func_label = MSELoss()
+        self.loss_func_smooth = GradientLoss()
         self.cross_train = cross_train
         self.alpha = alpha
         super().__init__(model_name=model_name, model=model, save_dir=save_dir, n_iter=n_iter, **kwargs)
@@ -206,19 +206,20 @@ class TrackNetTrainer(BaseTrainer):
         i1 = torch.from_numpy(batch['data'][:, 3:, ...]).float().cuda()
         l0 = torch.from_numpy(batch['seg'][:, :2, ...]).float().cuda()
         l1 = torch.from_numpy(batch['seg'][:, 2:, ...]).float().cuda()
-        pred_l1, pred_i1 = self.model(i0, i1, l0)
-        loss_cycle = self.loss_func_cycle(i1, pred_i1)
+        pred_l1, pred_grid = self.model(i0, i1, l0)
+        loss_smooth = self.loss_func_smooth(pred_grid)
         loss_label = self.loss_func_label(l1, pred_l1)
-        loss = (1 - self.alpha) * loss_cycle + self.alpha * loss_label
+        loss = self.alpha * loss_label + (1 - self.alpha) * loss_smooth
         if self.cross_train:
-            pred_l0, pred_i0 = self.model(i1, i0, l1)
-            loss_cross_cycle = self.loss_func_cycle(i0, pred_i0)
+            pred_l0, pred_grid_r = self.model(i1, i0, l1)
             loss_cross_label = self.loss_func_label(l0, pred_l0)
-            loss += (1 - self.alpha) * loss_cross_cycle + self.alpha * loss_cross_label
+            loss_cross_smooth = self.loss_func_smooth(pred_grid_r)
+            loss += self.alpha * loss_cross_label + (1 - self.alpha) * loss_cross_smooth
             loss /= 2
         loss.backward()
         self.optimizer.step()
         return float(loss)
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Training parameters')

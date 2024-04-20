@@ -9,7 +9,7 @@ from .common import UpConv, DoubleConv
 class TrackNet(nn.Module):
     def __init__(self):
         super().__init__()
-        self.first = nn.Conv2d(in_channels=6, out_channels=64, kernel_size=7, stride=1, padding=3,
+        self.first = nn.Conv2d(in_channels=8, out_channels=64, kernel_size=7, stride=1, padding=3,
                                bias=False)
         resnet = models.resnet18(weights=models.resnet.ResNet18_Weights.IMAGENET1K_V1)
         chs = [64, 128, 256, 512]
@@ -31,11 +31,12 @@ class TrackNet(nn.Module):
         Args:
             last_image (torch.Tensor): size(B, C=3, H, W)
             new_image (torch.Tensor): size(B, C=3, H, W)
-            last_label (torch.Tensor): size(B, C', H, W)
+            last_label (torch.Tensor): size(B, C'=2, H, W)
         Returns:
-            torch.Tensor: size(B, C', H, W) 
+            new_label (torch.Tensor): size(B, C', H, W) 
+            grid (torch.Tensor): size(B, H, W, 2)
         """
-        x = torch.cat([last_image, new_image], dim=1)
+        x = torch.cat([last_image, new_image, last_label], dim=1)
         f0 = self.first(x)
         f1 = self.enc1(f0)
         f2 = self.enc2(f1)
@@ -47,5 +48,4 @@ class TrackNet(nn.Module):
         x = self.dec1(torch.cat([f0, x], dim=1))
         grid = self.last(x).permute(0, 2, 3, 1)
         new_label = nnf.grid_sample(last_label, grid)
-        cycle_image = nnf.grid_sample(last_image, grid)
-        return new_label, cycle_image
+        return new_label, grid

@@ -33,7 +33,7 @@ class NCCLoss(nn.Module):
         """
         f_mean = torch.mean(fixed)
         m_mean = torch.mean(moving)
-        f_std = torch.std(f_mean)
+        f_std = torch.std(fixed)
         m_std = torch.std(moving)
         return ((fixed - f_mean) * (moving - m_mean) / (f_std * m_std)).sum()
 
@@ -118,27 +118,22 @@ class RefInfoNCELoss(nn.Module):
         return loss.mean()
 
 
-class RefMapLoss(nn.Module):
-    """ We hope each pair of features' similarity is related to 
-    the similarity of references.
-    Args:
-        nn (_type_): _description_
-    """
-    def __init__():
+
+class GradientLoss(nn.Module):
+    def __init__(self) -> None:
         super().__init__()
         
-    def forward(self, f, noise, ref):
+    def forward(field):
         """
-        <f_i, f_j> => <r_i, r_j>
-        <f_i, n_j> => <r_i, r_j>
         Args:
-            f (_type_): _description_
-            noise (_type_): _description_
-            ref (_type_): _description_
+            field (torch.Tensor): size of (B, H, W, 2)
         """
-        bs = f.size(0)
-        cat_noise_f = torch.cat([noise, f], dim=0)
-        return
+        dx = field[:, 1:, :, :] - field[:, :-1, :, :]
+        dy = field[:, :, 1:, :] - field[:, :, :-1, :]
+        d = torch.mean(dx ** 2) + torch.mean(dy ** 2)
+        return d
+
+
 
 if __name__ == '__main__':
     f_ = torch.rand(8, 1000)

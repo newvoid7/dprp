@@ -123,7 +123,7 @@ class GradientLoss(nn.Module):
     def __init__(self) -> None:
         super().__init__()
         
-    def forward(field):
+    def forward(self, field):
         """
         Args:
             field (torch.Tensor): size of (B, H, W, 2)

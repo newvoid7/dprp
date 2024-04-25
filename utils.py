@@ -30,7 +30,7 @@ def time_it(func):
     return wrapper
 
 
-def resize_to_fit(img, out_size, pad=True, pad_color=(0, 0, 0), interp=cv2.INTER_LINEAR):
+def resize_to_fit(img, out_size, pad=True, pad_color=(0, 0, 0), interp=cv2.INTER_LINEAR, transposed=False):
     """ Resize the image to make it fit the out size.
     The background is set to black by default.
     If not pad, then crop the biggest part of image.
@@ -49,6 +49,8 @@ def resize_to_fit(img, out_size, pad=True, pad_color=(0, 0, 0), interp=cv2.INTER
         out_h = int(out_size[0])
         out_w = int(out_size[1])
     if len(img.shape) == 3:    
+        if transposed:
+            img = img.transpose((1, 2, 0))
         in_h, in_w, c = img.shape
         _out = np.zeros((out_h, out_w, c), dtype=img.dtype)
     elif len(img.shape) == 2:
@@ -75,6 +77,8 @@ def resize_to_fit(img, out_size, pad=True, pad_color=(0, 0, 0), interp=cv2.INTER
         else:
             new_h = in_h * out_w // in_w
             _out = cv2.resize(img, (out_w, new_h), interpolation=interp)[(new_h - out_h) // 2: (new_h + out_h) // 2, :, ...]
+    if transposed and len(_out.shape) == 3:
+        _out = _out.transpose((2, 0, 1))
     return _out
 
 

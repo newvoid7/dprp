@@ -1,6 +1,7 @@
 import json
 import os
 import argparse
+import time
 
 import numpy as np
 import torch
@@ -91,6 +92,8 @@ class Fuser:
         self.render_size = probe_group.render_size
 
         probes = probe_group.probes
+        
+        start = time.time()
 
         self.probe_azimuth = np.asarray([p.get_spcoord_dict()['azimuth'] for p in probes])
         self.probe_zenith = np.asarray([p.get_spcoord_dict()['zenith'] for p in probes])
@@ -105,6 +108,7 @@ class Fuser:
                 pred = self.feature_extractor(batch)
             self.feature_pool.append(pred)
         self.feature_pool = torch.cat(self.feature_pool, dim=0)
+        stamp1 = time.time()
 
         # PPS
         if with_pps:
@@ -114,30 +118,36 @@ class Fuser:
             self.pps = PPS(probe_group.neighbor, self.feature_pool, pps_filtered)
         else:
             self.pps = PPS(probe_group.neighbor, self.feature_pool)
+        stamp2 = time.time()
         
-        # for re-render
+        # re-render middle image and source image
         self.renderer = PRRenderer(probe_group.mesh_path, out_size=image_size)
         self.extra_rendered = [self.renderer.render(mat=p.get_matrix()) for p in probes]
+        stamp3 = time.time()
+        
         self.resized_rendered = [self.renderer.render(mat=p.get_matrix(), draw_mesh=probe_group.draw_mesh, mode='FLAT')[..., ::-1] for p in probes]
         self.resized_rendered = [characterize(r.transpose((2, 0, 1)), RENDER_FLAT_CHARACTERIZER) for r in self.resized_rendered]
+        stamp4 = time.time()
         
         # last_label: np.ndarray (C=2, H, W)
         self.last_label = first_label
+        # last_frame: np.ndarray (H, W, [BGR])
         self.last_frame = None
 
+    @time_it
     def segmentation(self, new_frame, pad=True):
         if self.last_frame is None:
             return self.last_label
         else:
             last_frame_tensor = cv2_to_tensor(resize_to_fit(self.last_frame, self.render_size, pad=pad)).unsqueeze(0).cuda()
             new_frame_tensor = cv2_to_tensor(resize_to_fit(new_frame, self.render_size, pad=pad)).unsqueeze(0).cuda()
-            last_label_cv2 = np.stack([resize_to_fit(c, self.render_size, pad=pad) for c in self.last_label], axis=0)
+            last_label_cv2 = resize_to_fit(self.last_label, self.render_size, pad=pad, transposed=True)
             last_label_tensor = torch.from_numpy(last_label_cv2).unsqueeze(0).cuda()
             with torch.no_grad():
                 new_label_tensor, _ = self.tracker(last_frame_tensor, new_frame_tensor, last_label_tensor)
             new_label = new_label_tensor.squeeze().detach().cpu().numpy()
             new_label = characterize(new_label, LABEL_PRED_CHARACTERIZER)
-            new_label = np.stack([resize_to_fit(c, self.frame_size, pad=not pad) for c in new_label], axis=0)
+            new_label = resize_to_fit(new_label, self.frame_size, pad=not pad, transposed=True)
             return new_label
 
     @time_it
@@ -179,7 +189,7 @@ class Fuser:
             'fixed image': seg_2ch,     # same as segmentation
             'moved image': moved,       # np.ndarray (C=2, H, W)
             'source image': source,     # np.ndarray (H, W, [BGR])
-            'destination image': dst    # np.ndarray (H, W, [BGR])
+            'destination image': tensor_to_cv2(dst)    # np.ndarray (H, W, [BGR])
         }
         return fuse_info
 

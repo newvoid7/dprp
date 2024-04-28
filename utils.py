@@ -39,6 +39,7 @@ def resize_to_fit(img, out_size, pad=True, pad_color=(0, 0, 0), interp=cv2.INTER
         out_size (int or 2 int's):
         pad: if True, pad the extra area; if False, crop the image.
         pad_color: which color should be padded 
+        transposed: False if shape of img is (H, W, C), True if (C, H, W)
     Returns:
         np.ndarray: shape of (out_size, out_size, C)
     """

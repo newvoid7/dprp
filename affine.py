@@ -30,8 +30,8 @@ class BaseAffineSolver:
         Args:
             src (np.nadarry): (from cv2)
         """
-        new_in_tensor = cv2_to_tensor(src).unsqueeze(0).cuda()
-        grid = nnf.affine_grid(mat.unsqueeze(0), new_in_tensor.size(), align_corners=False).cuda()
+        new_in_tensor = cv2_to_tensor(src).unsqueeze(0).to(mat.device)
+        grid = nnf.affine_grid(mat.unsqueeze(0), new_in_tensor.size(), align_corners=False).to(mat.device)
         transformed = nnf.grid_sample(new_in_tensor, grid, mode=mode, align_corners=False).squeeze()
         if not return_tensor:
             transformed = tensor_to_cv2(transformed)
@@ -78,7 +78,8 @@ class NetworkAffineSolver(BaseAffineSolver):
 
 
 class GeometryAffineSolver(BaseAffineSolver):
-    def __init__(self) -> None:
+    def __init__(self, device=0) -> None:
+        self.device = device
         return
     
     @staticmethod
@@ -135,11 +136,11 @@ class GeometryAffineSolver(BaseAffineSolver):
         mat01_batch = inv_s * sin_a
         mat02_batch = -inv_s * (tx1 * cos_a + ty1 * sin_a) - tx0
         mat12_batch = inv_s * (tx1 * sin_a - ty1 * cos_a) - ty0
-        mat0_batch = torch.stack((mat00_batch, mat01_batch, mat02_batch), dim=1)
-        mat1_batch = torch.stack((-mat01_batch, mat00_batch, mat12_batch), dim=1)
+        mat0_batch = torch.stack((mat00_batch, mat01_batch, mat02_batch), dim=1).cuda(self.device)
+        mat1_batch = torch.stack((-mat01_batch, mat00_batch, mat12_batch), dim=1).cuda(self.device)
         mat_batch = torch.stack((mat0_batch, mat1_batch), dim=1)
-        moving_tensor = torch.from_numpy(moving).cuda().unsqueeze(0).repeat(len(rot_batch), 1, 1, 1)
-        fixed_tensor = torch.from_numpy(fixed).cuda()
+        moving_tensor = torch.from_numpy(moving).cuda(self.device).unsqueeze(0).repeat(len(rot_batch), 1, 1, 1)
+        fixed_tensor = torch.from_numpy(fixed).cuda(self.device)
         grid_batch = nnf.affine_grid(mat_batch, moving_tensor.size(), align_corners=False)
         dst_batch = nnf.grid_sample(moving_tensor, grid_batch, mode='nearest', align_corners=False)
         metric = self.eval_func(dst_batch, fixed_tensor).mean(-1)

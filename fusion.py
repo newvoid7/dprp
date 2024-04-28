@@ -75,7 +75,8 @@ class Fuser:
                  affine2d_solver: BaseAffineSolver = None,
                  tracker: torch.nn.Module = None,
                  image_size=512,
-                 first_label=None):
+                 first_label=None,
+                 device=0):
         """
         Do the preoperative and intraoperative image fusion.
         Args:
@@ -90,6 +91,7 @@ class Fuser:
         self.affine_solver = affine2d_solver
         self.tracker = tracker
         self.render_size = probe_group.render_size
+        self.device = device
 
         probes = probe_group.probes
         
@@ -103,7 +105,7 @@ class Fuser:
         bs = 128
         for i in range(len(rendered_2ch_pool) // bs + 1):
             batch = np.asarray(rendered_2ch_pool[i * bs : min(i * bs + bs, len(rendered_2ch_pool))])
-            batch = torch.from_numpy(batch).cuda()
+            batch = torch.from_numpy(batch).cuda(device)
             with torch.no_grad():
                 pred = self.feature_extractor(batch)
             self.feature_pool.append(pred)
@@ -114,7 +116,7 @@ class Fuser:
         if with_pps:
             restriction = restrictions[case_type]
             pps_filtered = restriction['azimuth'](self.probe_azimuth) & restriction['zenith'](self.probe_zenith)
-            pps_filtered = torch.from_numpy(pps_filtered).cuda()
+            pps_filtered = torch.from_numpy(pps_filtered).cuda(device)
             self.pps = PPS(probe_group.neighbor, self.feature_pool, pps_filtered)
         else:
             self.pps = PPS(probe_group.neighbor, self.feature_pool)
@@ -139,10 +141,10 @@ class Fuser:
         if self.last_frame is None:
             return self.last_label
         else:
-            last_frame_tensor = cv2_to_tensor(resize_to_fit(self.last_frame, self.render_size, pad=pad)).unsqueeze(0).cuda()
-            new_frame_tensor = cv2_to_tensor(resize_to_fit(new_frame, self.render_size, pad=pad)).unsqueeze(0).cuda()
+            last_frame_tensor = cv2_to_tensor(resize_to_fit(self.last_frame, self.render_size, pad=pad)).unsqueeze(0).cuda(self.device)
+            new_frame_tensor = cv2_to_tensor(resize_to_fit(new_frame, self.render_size, pad=pad)).unsqueeze(0).cuda(self.device)
             last_label_cv2 = resize_to_fit(self.last_label, self.render_size, pad=pad, transposed=True)
-            last_label_tensor = torch.from_numpy(last_label_cv2).unsqueeze(0).cuda()
+            last_label_tensor = torch.from_numpy(last_label_cv2).unsqueeze(0).cuda(self.device)
             with torch.no_grad():
                 new_label_tensor, _ = self.tracker(last_frame_tensor, new_frame_tensor, last_label_tensor)
             new_label = new_label_tensor.squeeze().detach().cpu().numpy()
@@ -164,16 +166,16 @@ class Fuser:
         """
         seg_2ch = self.segmentation(frame)
         # find the best matching probe
-        seg_2ch_square = np.stack([resize_to_fit(s, self.render_size, pad=False) for s in seg_2ch], axis=0)
+        seg_2ch_square = resize_to_fit(seg_2ch, self.render_size, pad=False, transposed=True)
         with torch.no_grad():
-            seg_feature = self.feature_extractor(torch.from_numpy(seg_2ch_square).cuda().unsqueeze(0))
+            seg_feature = self.feature_extractor(torch.from_numpy(seg_2ch_square).cuda(self.device).unsqueeze(0))
         hit_index = self.pps.best(seg_feature)
         # registration from moving -> fixed, apply it on source
         moving = self.resized_rendered[hit_index]
         source = self.extra_rendered[hit_index]
         dst, mat, moved = self.affine_solver.solve_and_affine(moving, seg_2ch, source)
         # fuse
-        fused = images_alpha_lighten(cv2_to_tensor(frame).cuda(), dst, 0.5)
+        fused = images_alpha_lighten(cv2_to_tensor(frame).cuda(self.device), dst, 0.5)
         fused = tensor_to_cv2(fused)
         # maintain last label and last frame
         self.last_label = moved
@@ -194,12 +196,13 @@ class Fuser:
         return fuse_info
 
 
-def test(fold=0, n_fold=4, ablation=None, validation=False):
+def test(fold=0, n_fold=4, ablation=None, validation=False, device=0):
     base_dir = paths.DATASET_DIR
     if validation:
         test_cases, _ = set_fold(fold, n_fold)
     else:
         _, test_cases = set_fold(fold, n_fold)
+    test_cases = ['GongDaoming']
     for case_id in test_cases:
         # directories and dataloader
         case_dir = os.path.join(base_dir, case_id)
@@ -218,16 +221,16 @@ def test(fold=0, n_fold=4, ablation=None, validation=False):
         # feature extractor
         profen_weight_dir = 'profen' if ablation is None or ablation == 'wo_pps' else 'profen_' + ablation
         profen_path = '{}/fold{}/{}/best.pth'.format(paths.WEIGHTS_DIR, fold, profen_weight_dir)
-        profen = ProFEN().cuda()
+        profen = ProFEN().cuda(device)
         profen.load_state_dict(torch.load(profen_path))
         profen.eval()
         
         # affine 2d solver
-        affine_solver = GeometryAffineSolver()
+        affine_solver = GeometryAffineSolver(device)
 
         # segmentation tracker
         tracker_path = '{}/fold{}/tracknet/best.pth'.format(paths.WEIGHTS_DIR, fold)
-        tracker = TrackNet().cuda()
+        tracker = TrackNet().cuda(device)
         tracker.load_state_dict(torch.load(tracker_path))
         tracker.eval()
 
@@ -256,7 +259,8 @@ def test(fold=0, n_fold=4, ablation=None, validation=False):
             affine2d_solver=affine_solver,
             tracker=tracker,
             image_size=case_dataloader.image_size(),
-            first_label=first_label
+            first_label=first_label,
+            device=device
         )
 
         evaluations = {}
@@ -314,10 +318,9 @@ if __name__ == '__main__':
                         help='whether do the ablation')
     args = parser.parse_args()
     
-    os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
     os.environ['PYOPENGL_PLATFORM'] = 'egl'
     
     for abl in args.ablations:
         for fold in args.folds:
-            test(fold=fold, n_fold=args.n_folds, ablation=abl if abl != 'none' else None, validation=False)
+            test(fold=fold, n_fold=args.n_folds, ablation=abl if abl != 'none' else None, validation=False, device=args.gpu)
             print(statistic(fold=fold, n_fold=args.n_folds, validation=False))

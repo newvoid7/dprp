@@ -134,7 +134,7 @@ def test_tracknet(fold=0, n_fold=4):
         # images = [crop_patches(cv2_to_tensor(i), (320, 320)) for i in images]
         images = [cv2_to_tensor(resize_to_fit(i, (400, 400))).unsqueeze(0) for i in images]
         labels = [cv2.imread(os.path.join(case_dir, 'label', fn)) for fn in fns]
-        labels = [resize_to_fit(l, (400, 400), interp=cv2.INTER_NEAREST) if l is not None else None for l in labels]
+        labels = [resize_to_fit(l, (400, 400), interp='nearest') if l is not None else None for l in labels]
         labels = [characterize(l.transpose((2, 0, 1)), LABEL_GT_CHARACTERIZER) if l is not None else None for l in labels]
         # last_label = crop_patches(torch.from_numpy(labels[0]), (320, 320))
         first_label_idx = 0

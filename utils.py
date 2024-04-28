@@ -30,7 +30,7 @@ def time_it(func):
     return wrapper
 
 
-def resize_to_fit(img, out_size, pad=True, pad_color=(0, 0, 0), interp=cv2.INTER_LINEAR, transposed=False):
+def resize_to_fit(img, out_size, pad=True, interp='linear', transposed=False):
     """ Resize the image to make it fit the out size.
     The background is set to black by default.
     If not pad, then crop the biggest part of image.
@@ -43,6 +43,12 @@ def resize_to_fit(img, out_size, pad=True, pad_color=(0, 0, 0), interp=cv2.INTER
     Returns:
         np.ndarray: shape of (out_size, out_size, C)
     """
+    if interp == 'linear':
+        cv2_interp = cv2.INTER_LINEAR
+    elif interp == 'nearest':
+        cv2_interp = cv2.INTER_NEAREST
+    else:
+        cv2_interp = cv2.INTER_CUBIC 
     if isinstance(out_size, int):
         out_h = out_size
         out_w = out_size
@@ -60,24 +66,19 @@ def resize_to_fit(img, out_size, pad=True, pad_color=(0, 0, 0), interp=cv2.INTER
     else:
         raise
     if pad:
-        if len(img.shape) == 2 and isinstance(pad_color, int):
-            _out += pad_color
-        else:
-            for i, c in enumerate(pad_color):
-                _out[i] += c
         if in_h / in_w < out_h / out_w:
             new_h = in_h * out_w // in_w
-            _out[(out_h - new_h) // 2: (out_h + new_h) // 2, :, ...] = cv2.resize(img, (out_w, new_h), interpolation=interp)
+            _out[(out_h - new_h) // 2: (out_h + new_h) // 2, :, ...] = cv2.resize(img, (out_w, new_h), interpolation=cv2_interp)
         else:
             new_w = in_w * out_h // in_h
-            _out[:, (out_w - new_w) // 2: (out_w + new_w) // 2, ...] = cv2.resize(img, (new_w, out_h), interpolation=interp)
+            _out[:, (out_w - new_w) // 2: (out_w + new_w) // 2, ...] = cv2.resize(img, (new_w, out_h), interpolation=cv2_interp)
     else:
         if in_h / in_w < out_h / out_w:
             new_w = in_w * out_h // in_h 
-            _out = cv2.resize(img, (new_w, out_h), interpolation=interp)[:, (new_w - out_w) // 2: (new_w + out_w) // 2, ...]
+            _out = cv2.resize(img, (new_w, out_h), interpolation=cv2_interp)[:, (new_w - out_w) // 2: (new_w + out_w) // 2, ...]
         else:
             new_h = in_h * out_w // in_w
-            _out = cv2.resize(img, (out_w, new_h), interpolation=interp)[(new_h - out_h) // 2: (new_h + out_h) // 2, :, ...]
+            _out = cv2.resize(img, (out_w, new_h), interpolation=cv2_interp)[(new_h - out_h) // 2: (new_h + out_h) // 2, :, ...]
     if transposed and len(_out.shape) == 3:
         _out = _out.transpose((2, 0, 1))
     return _out

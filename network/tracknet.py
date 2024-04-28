@@ -47,5 +47,5 @@ class TrackNet(nn.Module):
         x = self.dec2(x, f1)
         x = self.dec1(torch.cat([f0, x], dim=1))
         grid = self.last(x).permute(0, 2, 3, 1)
-        new_label = nnf.grid_sample(last_label, grid)
+        new_label = nnf.grid_sample(last_label, grid, mode='nearest')
         return new_label, grid

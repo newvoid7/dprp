@@ -143,14 +143,14 @@ class Fuser:
         else:
             last_frame_tensor = cv2_to_tensor(resize_to_fit(self.last_frame, self.render_size, pad=pad)).unsqueeze(0).cuda(self.device)
             new_frame_tensor = cv2_to_tensor(resize_to_fit(new_frame, self.render_size, pad=pad)).unsqueeze(0).cuda(self.device)
-            last_label_cv2 = resize_to_fit(self.last_label, self.render_size, pad=pad, transposed=True)
-            last_label_tensor = torch.from_numpy(last_label_cv2).unsqueeze(0).cuda(self.device)
+            last_label_ch = resize_to_fit(self.last_label, self.render_size, pad=pad, interp='nearest', transposed=True)
+            last_label_tensor = torch.from_numpy(last_label_ch).unsqueeze(0).cuda(self.device)
             with torch.no_grad():
                 new_label_tensor, _ = self.tracker(last_frame_tensor, new_frame_tensor, last_label_tensor)
-            new_label = new_label_tensor.squeeze().detach().cpu().numpy()
-            new_label = characterize(new_label, LABEL_PRED_CHARACTERIZER)
-            new_label = resize_to_fit(new_label, self.frame_size, pad=not pad, transposed=True)
-            return new_label
+            new_label_ch = new_label_tensor.squeeze().detach().cpu().numpy()
+            new_label_ch = characterize(new_label_ch, LABEL_PRED_CHARACTERIZER)
+            new_label_ch = resize_to_fit(new_label_ch, self.frame_size, pad=not pad, interp='nearest', transposed=True)
+            return new_label_ch
 
     @time_it
     def process_frame(self, frame):
@@ -164,16 +164,16 @@ class Fuser:
             dict:
                 'render' (np.ndarray): shape of (H, W, 3)
         """
-        seg_2ch = self.segmentation(frame)
+        seg = self.segmentation(frame)
         # find the best matching probe
-        seg_2ch_square = resize_to_fit(seg_2ch, self.render_size, pad=False, transposed=True)
+        seg_square = resize_to_fit(seg, self.render_size, pad=False, interp='nearest', transposed=True)
         with torch.no_grad():
-            seg_feature = self.feature_extractor(torch.from_numpy(seg_2ch_square).cuda(self.device).unsqueeze(0))
+            seg_feature = self.feature_extractor(torch.from_numpy(seg_square).cuda(self.device).unsqueeze(0))
         hit_index = self.pps.best(seg_feature)
         # registration from moving -> fixed, apply it on source
         moving = self.resized_rendered[hit_index]
         source = self.extra_rendered[hit_index]
-        dst, mat, moved = self.affine_solver.solve_and_affine(moving, seg_2ch, source)
+        dst, mat, moved = self.affine_solver.solve_and_affine(moving, seg, source)
         # fuse
         fused = images_alpha_lighten(cv2_to_tensor(frame).cuda(self.device), dst, 0.5)
         fused = tensor_to_cv2(fused)
@@ -184,11 +184,11 @@ class Fuser:
         fuse_info = {
             'fused image': fused,       # np.ndarray (H, W, [BGR])
             'original': frame,
-            'segmentation': seg_2ch,    # np.ndarray (C=2, H, W)
+            'segmentation': seg,    # np.ndarray (C=2, H, W)
             'probe index': hit_index,   
             'matrix': mat,              # torch.Tensor (2, 3)
             'moving image': moving,     # np.ndarray (C=2, H, W)
-            'fixed image': seg_2ch,     # same as segmentation
+            'fixed image': seg,     # same as segmentation
             'moved image': moved,       # np.ndarray (C=2, H, W)
             'source image': source,     # np.ndarray (H, W, [BGR])
             'destination image': tensor_to_cv2(dst)    # np.ndarray (H, W, [BGR])

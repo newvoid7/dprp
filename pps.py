@@ -14,7 +14,7 @@ class PPS:
         """
         self.neighborhoods = neighborhoods
         self.features = features
-        self.sim_func = CosineSimilarity().cuda()
+        self.sim_func = CosineSimilarity().to(features.device)
         self.mask = mask
         
     @time_it

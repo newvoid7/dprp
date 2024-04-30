@@ -23,7 +23,7 @@ from dataloaders import set_fold
 
 
 class BaseTrainer:
-    def __init__(self, model_name, model, save_dir, 
+    def __init__(self, model_name, model, save_dir, device=0, 
                  draw_loss=True, save_cycle=0, n_epoch=300, n_iter=None, lr=1e-4, optimizer=None):
         """
         Args:
@@ -43,6 +43,7 @@ class BaseTrainer:
         self.n_epoch = n_epoch
         self.n_iter = n_iter            # should be set by num_total / batch_size
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr) if optimizer is None else optimizer
+        self.device = device
         os.makedirs(save_dir, exist_ok=True)
     
     def train_iter(self) -> float:
@@ -67,7 +68,7 @@ class BaseTrainer:
         """
         print('===> Training {}'.format(self.model_name))
         print('Save directory is {}.'.format(self.save_dir))
-        self.model.cuda()
+        self.model.cuda(self.device)
         self.model.train()
         if resume:
             train_losses = np.load('{}/loss.npy'.format(self.save_dir))
@@ -119,7 +120,7 @@ class ProfenTrainer(BaseTrainer):
         model_name = 'profen' if ablation is None else 'profen_' + ablation
         save_dir = os.path.join(paths.WEIGHTS_DIR, 'fold{}'.format(fold), model_name)
         self.with_agent = ablation != 'wo_agent'
-        self.loss_func = InfoNCELoss().cuda()
+        self.loss_func = InfoNCELoss().cuda(self.device)
         train_cases, _ = set_fold(fold, n_folds)
         probe_groups = [ProbeGroup(deserialize_path=os.path.join(paths.RESULTS_DIR, case_id, paths.PROBE_FILENAME))
             for case_id in train_cases]
@@ -135,7 +136,7 @@ class ProfenTrainer(BaseTrainer):
     def train_iter(self) -> float:
         self.optimizer.zero_grad()
         batch = next(self.dataloader)
-        render = torch.from_numpy(batch['data']).float().cuda()
+        render = torch.from_numpy(batch['data']).float().cuda(self.device)
         noise = self.agent.apply(render) if self.with_agent else render
         features = self.model(torch.cat([render, noise], dim=0))
         loss = self.loss_func(features[:len(features) // 2], features[len(features) // 2:])
@@ -149,7 +150,7 @@ class Affine2DTrainer(BaseTrainer):
         model = Affine2dPredictorSlim()
         model_name = 'affine2d' if ablation is None else 'affine2d_' + ablation
         save_dir = os.path.join(paths.WEIGHTS_DIR, 'fold{}'.format(fold), model_name)
-        self.transformer = Affine2dTransformer().cuda()
+        self.transformer = Affine2dTransformer().cuda(self.device)
         self.loss_func = MSELoss()
         train_cases, _ = set_fold(fold, n_folds)
         probe_groups = [ProbeGroup(deserialize_path=os.path.join(paths.RESULTS_DIR, case_id, paths.PROBE_FILENAME))
@@ -166,7 +167,7 @@ class Affine2DTrainer(BaseTrainer):
     def train_iter(self) -> float:
         self.optimizer.zero_grad()
         batch = next(self.dataloader)
-        render = torch.from_numpy(batch['data']).float().cuda()
+        render = torch.from_numpy(batch['data']).float().cuda(self.device)
         target = self.agent.apply(render)
         params = self.agent.real_params
         pred_params = self.model(render, target)
@@ -202,10 +203,10 @@ class TrackNetTrainer(BaseTrainer):
     def train_iter(self) -> float:
         self.optimizer.zero_grad()
         batch = next(self.augmenter)
-        i0 = torch.from_numpy(batch['data'][:, :3, ...]).float().cuda()
-        i1 = torch.from_numpy(batch['data'][:, 3:, ...]).float().cuda()
-        l0 = torch.from_numpy(batch['seg'][:, :2, ...]).float().cuda()
-        l1 = torch.from_numpy(batch['seg'][:, 2:, ...]).float().cuda()
+        i0 = torch.from_numpy(batch['data'][:, :3, ...]).float().cuda(self.device)
+        i1 = torch.from_numpy(batch['data'][:, 3:, ...]).float().cuda(self.device)
+        l0 = torch.from_numpy(batch['seg'][:, :2, ...]).float().cuda(self.device)
+        l1 = torch.from_numpy(batch['seg'][:, 2:, ...]).float().cuda(self.device)
         pred_l1, pred_grid = self.model(i0, i1, l0)
         loss_smooth = self.loss_func_smooth(pred_grid)
         loss_label = self.loss_func_label(l1, pred_l1)
@@ -242,15 +243,14 @@ if __name__ == '__main__':
                         help='train which network, choices: affine, profen')
     args = parser.parse_args()
     
-    os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
     if 'affine' in args.network:
-        Affine2DTrainer(fold=-1, save_cycle=args.save_cycle, n_epoch=args.n_epoch).train(resume=args.resume)
+        Affine2DTrainer(fold=-1, save_cycle=args.save_cycle, n_epoch=args.n_epoch, device=args.gpu).train(resume=args.resume)
     if 'profen' in args.network:
         for abl in args.ablations:
             for fold in args.folds:
-                ProfenTrainer(ablation=abl if abl != 'none' else None, fold=fold, n_folds=args.n_folds, 
+                ProfenTrainer(ablation=abl if abl != 'none' else None, fold=fold, n_folds=args.n_folds, device=args.gpu, 
                             save_cycle=args.save_cycle, n_epoch=args.n_epoch).train(resume=args.resume)
     if 'tracknet' in args.network:
         for fold in args.folds:
-            TrackNetTrainer(fold=fold, n_folds=args.n_folds, 
+            TrackNetTrainer(fold=fold, n_folds=args.n_folds, device=args.gpu, 
                             save_cycle=args.save_cycle, n_epoch=args.n_epoch).train(resume=args.resume)

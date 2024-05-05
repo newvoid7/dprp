@@ -143,6 +143,7 @@ class GeometryAffineSolver(BaseAffineSolver):
         fixed_tensor = torch.from_numpy(fixed).cuda(self.device)
         grid_batch = nnf.affine_grid(mat_batch, moving_tensor.size(), align_corners=False)
         dst_batch = nnf.grid_sample(moving_tensor, grid_batch, mode='nearest', align_corners=False)
+        del grid_batch      # avoid cuda oom
         metric = self.eval_func(dst_batch, fixed_tensor).mean(-1)
         opt_idx = metric.argmax()
         return mat_batch[opt_idx], dst_batch[opt_idx].detach().cpu().numpy()

@@ -21,7 +21,10 @@ class TrackNet(nn.Module):
         self.dec3 = UpConv(chs[2], chs[1])
         self.dec2 = UpConv(chs[1], chs[0])
         self.dec1 = DoubleConv(chs[0] + chs[0],  chs[0])
-        self.last = nn.Conv2d(in_channels=64, out_channels=2, kernel_size=3, stride=1, padding=1)
+        self.last = nn.Sequential(
+            nn.Conv2d(in_channels=64, out_channels=2, kernel_size=3, stride=1, padding=1),
+            nn.Tanh()
+        )
         return
 
     def forward(self, last_image, new_image, last_label):
@@ -46,6 +49,10 @@ class TrackNet(nn.Module):
         x = self.dec3(x, f2)
         x = self.dec2(x, f1)
         x = self.dec1(torch.cat([f0, x], dim=1))
-        grid = self.last(x).permute(0, 2, 3, 1)
+        vector = self.last(x).permute(0, 2, 3, 1)
+        bs = last_label.size(0)
+        sz = last_label.size()
+        base = nnf.affine_grid(torch.eye(3)[:2].repeat(bs, 1, 1), sz).to(vector.device)
+        grid = vector + base
         new_label = nnf.grid_sample(last_label, grid, mode='nearest')
-        return new_label, grid
+        return new_label, vector

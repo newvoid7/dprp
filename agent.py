@@ -71,5 +71,5 @@ if __name__ == '__main__':
     params = agent_task.real_params
     out_ = tensor_to_cv2(out_.squeeze())
     cv2.imwrite('after.png', out_)
-    print('params: {}'.format(params))
+    print(f'params: {params}')
     

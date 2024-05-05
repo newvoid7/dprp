@@ -153,7 +153,7 @@ class ProbeGroup:
             product = product.reshape(len(positions), len(positions))
             self.neighbor = product.argsort(axis=1)[..., -5:-1]
         else:
-            raise ArgumentError('Expect gird type in [sph|fib], get {} instead.'.format(grid_type))
+            raise ArgumentError(f'Expect gird type in [sph|fib], get {grid_type} instead.')
         for p in tqdm(iterable=positions, desc='Generating probes'):
             probe = Probe(self.mesh_path, eye=p, focus=[0, 0, 0], up=[0, 0, 1], render=None)
             label = renderer.render(probe.get_matrix(), mode='FLAT', draw_mesh=self.draw_mesh)[..., ::-1]
@@ -187,7 +187,7 @@ class ProbeGroup:
         else:
             for i, p in enumerate(self.probes):
                 image = cv2.resize(p.render, dsize=(cell_width, cell_width))
-                cv2.imwrite(os.path.join(result_dir, 'probe_{}.jpg'.format(i)), image)
+                cv2.imwrite(os.path.join(result_dir, f'probe_{i}.jpg'), image)
         # save position info
         params = {
             'mesh_path': self.mesh_path,
@@ -285,4 +285,4 @@ if __name__ == '__main__':
         pg.serialize(os.path.join(case_result_dir, paths.PROBE_FILENAME))
         pg.visualize(case_result_dir)
         # probes = deserialize_probes(os.path.join(case_result_dir, paths.PROBE_FILENAME))
-        print('Case {} is OK.'.format(case))
+        print(f'Case {case} is OK.')

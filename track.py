@@ -147,7 +147,7 @@ if __name__ == '__main__':
     tracker = TrackerAverage(images[0], labels[0])
     for i in range(1, len(fns)):
         new_label = tracker.track_label(images[i])
-        cv2.imwrite('tmp_label_{}.png'.format(i), new_label)
+        cv2.imwrite(f'tmp_label_{i}.png', new_label)
         metrics = evaluate_segmentation(
             characterize(new_label.transpose((2,0,1)), LABEL_GT_CHARACTERIZER),
             characterize(labels[i].transpose((2,0,1)), LABEL_GT_CHARACTERIZER)

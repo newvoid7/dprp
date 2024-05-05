@@ -20,12 +20,11 @@ def time_it(func):
         end = time.time()
         os.makedirs('.log', exist_ok=True)
         with open('.log/timecost.log', 'a') as f:
-            f.write('[{} {}>{}]: {:.2f} ms.\n'.format(
-                time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()), 
-                inspect.getfile(func),
-                func.__name__, 
-                (end - start) * 1000))
-        # print('[TIMELOG] function \'{}\' cost time: {:.2f} ms.'.format(func.__name__, (end - start) * 1000))
+            f.write(f'[{time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())} ' \
+                f'{inspect.getfile(func)} ' \
+                f'>{func.__name__}]: ' \
+                f'{(end - start) * 1000:.2f} ms.\n'
+            )
         return result
     return wrapper
 
@@ -143,6 +142,16 @@ def colorize(img, colors):
         out[img[i] == 1] = c
     return out
 
+
+def hotmap(img, colors):
+    """
+    Draw the hotmap of img
+    Args:
+        img (_type_): _description_
+        colors (_type_): _description_
+    """
+    out = np.zeros((img.shape[1], img.shape[2]), dtype=np.uint8)
+    img = img / img
 
 def stitch_images(images, gap=5):
     amount = len(images)

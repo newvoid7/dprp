@@ -54,10 +54,9 @@ class BaseTrainer:
         for iter in range(self.n_iter):
             iter_loss = self.train_iter()
             epoch_losses.append(iter_loss)
-        print('Epoch [{}/{}], average loss: {}'.format(epoch + 1, self.n_epoch, np.asarray(epoch_losses).mean()))
         if (self.save_cycle != 0) and ((epoch + 1) % self.save_cycle == 0):
-            torch.save(self.model.state_dict(), '{}/{}.pth'.format(self.save_dir, epoch))
-        torch.save(self.model.state_dict(), '{}/last.pth'.format(self.save_dir))
+            torch.save(self.model.state_dict(), f'{self.save_dir}/{epoch}.pth')
+        torch.save(self.model.state_dict(), f'{self.save_dir}/last.pth')
         return np.asarray(epoch_losses)
     
     @time_it
@@ -66,28 +65,29 @@ class BaseTrainer:
         Args:
             resume (bool, optional): Resume from the last epoch. Defaults to False.
         """
-        print('===> Training {}'.format(self.model_name))
-        print('Save directory is {}.'.format(self.save_dir))
+        print(f'===> Training {self.model_name}')
+        print(f'Save directory is {self.save_dir}.')
         self.model.cuda(self.device)
         self.model.train()
         if resume:
-            train_losses = np.load('{}/loss.npy'.format(self.save_dir))
+            train_losses = np.load(f'{self.save_dir}/loss.npy')
             if len(train_losses) == 1 or len(train_losses[-1]) != len(train_losses[0]):
                 train_losses = train_losses[:-1]
             last_epoch = len(train_losses)
-            self.model.load_state_dict(torch.load('{}/last.pth'.format(self.save_dir)))
-            print('Resumed from epoch {}.'.format(last_epoch))
+            self.model.load_state_dict(torch.load(f'{self.save_dir}/last.pth'))
+            print(f'Resumed from epoch {last_epoch}.')
         else:
             last_epoch = 0
             train_losses = np.zeros((0, self.n_iter))
         best_loss = np.inf
-        for epoch in tqdm(iterable=range(last_epoch, self.n_epoch), desc='Training epoch'):
+        for epoch in (pbar := tqdm(iterable=range(last_epoch, self.n_epoch))):
             epoch_losses = self.train_epoch(epoch)
+            pbar.set_description(f'Training loss {epoch_losses.mean()}')
             if epoch_losses.mean() < best_loss:
-                torch.save(self.model.state_dict(), '{}/best.pth'.format(self.save_dir))
+                torch.save(self.model.state_dict(), f'{self.save_dir}/best.pth')
                 best_loss = epoch_losses.mean()
             train_losses = np.append(train_losses, [epoch_losses], axis=0)
-            np.save('{}/loss.npy'.format(self.save_dir), train_losses)
+            np.save(f'{self.save_dir}/loss.npy', train_losses)
         if self.draw_loss:
             hor_axis = np.arange(len(train_losses))
             average = train_losses.mean(-1)
@@ -97,12 +97,12 @@ class BaseTrainer:
             plt.figure()
             plt.plot(hor_axis, average, color='black')            
             plt.fill_between(hor_axis, minus_half_std, add_half_std, color='lightgray', alpha=0.5)
-            plt.title('{} Loss Curve'.format(self.model_name.upper()))
+            plt.title(f'{self.model_name.upper()} Loss Curve')
             plt.xlabel('epoch')
             plt.ylabel('loss')
-            plt.savefig('{}/loss.png'.format(self.save_dir))
+            plt.savefig(f'{self.save_dir}/loss.png')
             plt.close()
-        print('===> Training {} done.'.format(self.model_name))
+        print(f'===> Training {self.model_name} done.')
         return
 
 
@@ -118,7 +118,7 @@ class ProfenTrainer(BaseTrainer):
         """
         model = ProFEN()
         model_name = 'profen' if ablation is None else 'profen_' + ablation
-        save_dir = os.path.join(paths.WEIGHTS_DIR, 'fold{}'.format(fold), model_name)
+        save_dir = os.path.join(paths.WEIGHTS_DIR, f'fold{fold}', model_name)
         self.with_agent = ablation != 'wo_agent'
         self.loss_func = InfoNCELoss().cuda(self.device)
         train_cases, _ = set_fold(fold, n_folds)
@@ -149,7 +149,7 @@ class Affine2DTrainer(BaseTrainer):
     def __init__(self, ablation=None, fold=0, n_folds=0, batch_size=8, **kwargs):
         model = Affine2dPredictorSlim()
         model_name = 'affine2d' if ablation is None else 'affine2d_' + ablation
-        save_dir = os.path.join(paths.WEIGHTS_DIR, 'fold{}'.format(fold), model_name)
+        save_dir = os.path.join(paths.WEIGHTS_DIR, f'fold{fold}', model_name)
         self.transformer = Affine2dTransformer().cuda(self.device)
         self.loss_func = MSELoss()
         train_cases, _ = set_fold(fold, n_folds)
@@ -186,7 +186,7 @@ class TrackNetTrainer(BaseTrainer):
     def __init__(self, fold=0, n_folds=0, batch_size=4, cross_train=True, alpha=0.8, **kwargs):
         model = TrackNet()
         model_name = 'tracknet'
-        save_dir = os.path.join(paths.WEIGHTS_DIR, 'fold{}'.format(fold), model_name)
+        save_dir = os.path.join(paths.WEIGHTS_DIR, f'fold{fold}', model_name)
         self.dataloader = TrackLabelDataloader(set_fold(fold, n_folds)[0], batch_size=batch_size, number_of_threads_in_multithreaded=8)
         self.transform = SpatialTransform(patch_size=(320, 320),
                                             do_elastic_deform=False,

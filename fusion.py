@@ -146,7 +146,7 @@ class Fuser:
             last_label_ch = resize_to_fit(self.last_label, self.render_size, pad=pad, interp='nearest', transposed=True)
             last_label_tensor = torch.from_numpy(last_label_ch).unsqueeze(0).cuda(self.device)
             with torch.no_grad():
-                new_label_tensor, _ = self.tracker(last_frame_tensor, new_frame_tensor, last_label_tensor)
+                new_label_tensor, grid = self.tracker(last_frame_tensor, new_frame_tensor, last_label_tensor)
             new_label_ch = new_label_tensor.squeeze().detach().cpu().numpy()
             new_label_ch = characterize(new_label_ch, LABEL_PRED_CHARACTERIZER)
             new_label_ch = resize_to_fit(new_label_ch, self.frame_size, pad=not pad, interp='nearest', transposed=True)
@@ -202,6 +202,7 @@ def test(fold=0, n_fold=4, ablation=None, validation=False, device=0):
         test_cases, _ = set_fold(fold, n_fold)
     else:
         _, test_cases = set_fold(fold, n_fold)
+    # test_cases = ['GongDaoming']
     for case_id in test_cases:
         # directories and dataloader
         case_dir = os.path.join(base_dir, case_id)
@@ -219,7 +220,7 @@ def test(fold=0, n_fold=4, ablation=None, validation=False, device=0):
         
         # feature extractor
         profen_weight_dir = 'profen' if ablation is None or ablation == 'wo_pps' else 'profen_' + ablation
-        profen_path = '{}/fold{}/{}/best.pth'.format(paths.WEIGHTS_DIR, fold, profen_weight_dir)
+        profen_path = f'{paths.WEIGHTS_DIR}/fold{fold}/{profen_weight_dir}/best.pth'
         profen = ProFEN().cuda(device)
         profen.load_state_dict(torch.load(profen_path))
         profen.eval()
@@ -228,7 +229,7 @@ def test(fold=0, n_fold=4, ablation=None, validation=False, device=0):
         affine_solver = GeometryAffineSolver(device)
 
         # segmentation tracker
-        tracker_path = '{}/fold{}/tracknet/best.pth'.format(paths.WEIGHTS_DIR, fold)
+        tracker_path = f'{paths.WEIGHTS_DIR}/fold{fold}/tracknet/best.pth'
         tracker = TrackNet().cuda(device)
         tracker.load_state_dict(torch.load(tracker_path))
         tracker.eval()
@@ -263,29 +264,27 @@ def test(fold=0, n_fold=4, ablation=None, validation=False, device=0):
         )
 
         evaluations = {}
-        for i in tqdm(iterable=range(first_idx, case_dataloader.length()), 
-                      desc='Fusion of case {}'.format(case_id)):
+        for i in tqdm(iterable=range(first_idx, case_dataloader.length()), desc=f'Fusion of case {case_id}'):
             photo = case_dataloader.images[i]
             fuse_info = fuser.process_frame(photo)
-            cv2.imwrite('{}/{}'.format(fusion_dir, case_dataloader.fns[i]), fuse_info['fused image'])
+            cv2.imwrite(f'{fusion_dir}/{case_dataloader.fns[i]}', fuse_info['fused image'])
             segment_gt = case_dataloader.labels[i]
             if segment_gt is not None:
                 seg_gt_2ch = characterize(segment_gt.transpose((2, 0, 1)), LABEL_GT_CHARACTERIZER)
                 metrics = evaluate_segmentation(fuse_info['moved image'], seg_gt_2ch)
                 evaluations[case_dataloader.fns[i]] = metrics
-                # print('Case: {} Frame: {} is OK.'.format(case_id, case_dataloader.fns[i]))
         evaluations['average'] = {
             channel: {
                 metric: np.asarray([case_value[channel][metric] for case_value in evaluations.values()]).mean()
                 for metric in list(evaluations.values())[0][channel].keys()
             } for channel in list(evaluations.values())[0].keys()
         }
-        with open('{}/{}/metrics.json'.format(result_dir, case_id), 'w') as f:
+        with open(f'{result_dir}/{case_id}/metrics.json', 'w') as f:
             json.dump(evaluations, f, indent=4)
         # explicitly delete registrator, release renderer in time, avoid GL errors
         del fuser
 
-    print('Fold {} all OK'.format(fold))
+    print(f'Fold {fold} all OK')
 
 
 def statistic(fold=0, n_fold=4, validation=False):

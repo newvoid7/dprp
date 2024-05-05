@@ -53,7 +53,7 @@ def test_profen(fold=0, n_fold=4, ablation=None):
         
         # feature extractor
         profen_weight_dir = 'profen' if ablation is None or ablation == 'wo_pps' else 'profen_' + ablation
-        profen_path = '{}/fold{}/{}/best.pth'.format(paths.WEIGHTS_DIR, fold, profen_weight_dir)
+        profen_path = f'{paths.WEIGHTS_DIR}/fold{fold}/{profen_weight_dir}/best.pth'
         profen = ProFEN().cuda()
         profen.load_state_dict(torch.load(profen_path))
         profen.eval()
@@ -119,7 +119,7 @@ def test_profen(fold=0, n_fold=4, ablation=None):
 @time_it
 def test_tracknet(fold=0, n_fold=4):
     tracknet = TrackNet().cuda()
-    tracknet.load_state_dict(torch.load(os.path.join(paths.WEIGHTS_DIR, 'fold{}'.format(fold), 'tracknet', 'best.pth')))
+    tracknet.load_state_dict(torch.load(os.path.join(paths.WEIGHTS_DIR, f'fold{fold}', 'tracknet', 'best.pth')))
     tracknet.eval()
     test_cases = set_fold(fold, n_fold)[1]
     ret_dict = {}

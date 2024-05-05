@@ -17,8 +17,7 @@ def set_fold(fold, num_all_folds):
         return paths.ALL_CASES, []
     num_all_cases = len(paths.ALL_CASES)
     if num_all_cases % num_all_folds != 0:
-        raise Warning('The number of cases ({}) could not be divided into {} folds.'
-                      .format(num_all_cases, num_all_folds))
+        raise Warning(f'The number of cases ({num_all_cases}) could not be divided into {num_all_folds} folds.')
     fold_size = num_all_cases // num_all_folds
     test_indices = [fold * fold_size + i for i in range(fold_size)]
     test_cases = [paths.ALL_CASES[i] for i in test_indices]

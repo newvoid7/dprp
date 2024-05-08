@@ -8,6 +8,8 @@ Place the data including:
 * 2D intra-operative images
 * 3D pre-operative mesh model (.obj file or .gltf file, can be generated from 3D images by `volume_to_mesh.py`)
 * segmentation labels of intra-operative images
+* the viewpoint restriction file `restrictions.json`
+* the viewpoint prior-knowledge information of each case `prior-info.json`
 
 of each case to the directory specified in `paths.py`.
 

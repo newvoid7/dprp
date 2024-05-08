@@ -24,56 +24,19 @@ from utils import (LABEL_GT_CHARACTERIZER,
                 )
 from affine import BaseAffineSolver, GeometryAffineSolver, NetworkAffineSolver, HybridAffineSolver
 from probe import ProbeGroup
-from dataloaders import set_fold, TestSingleCaseDataloader
+from dataloaders import set_fold, PracticalDataloader
 import paths
 from render import PRRenderer
 from pps import PPS 
-
-
-restrictions = {
-    # azimuth should be in [0, 360) degrees, elevation should be in [0, 180] degrees.
-    # each lambda expression inputs a np.ndarray and outputs a bool np.ndarray
-    'type1': {
-        'description': 'The renal main axis is z=y, the renal hilum is face to (-1, -1, 0).',
-        'azimuth': lambda x: (45 <= x) & (x <= 135),
-        'zenith': lambda x: (90 <= x) & (x <= 150)
-    },
-    'type2': {
-        'description': 'The renal main axis is z=-x, the renal hilum is face to (-1, -1, -1).',
-        'azimuth': lambda x: (90 <= x) & (x <= 180),
-        'zenith': lambda x: (90 <= x) & (x <= 150)
-    },
-    'type3': {
-        'description': 'The renal main axis is z=y, the renal hilum is face to (1, -1, 0).',
-        'azimuth': lambda x: (45 <= x) & (x <= 135),
-        'zenith': lambda x: (75 <= x) & (x <= 135)
-    },
-    'type4': {
-        'description': 'The renal main axis is z=y, the renal hilum is face to (1, -1, 0).',
-        'azimuth': lambda x: (135 <= x) & (x <= 225),
-        'zenith': lambda x: (60 <= x) & (x <= 150)
-    },
-    'type5': {
-        'description': 'The renal main axis is z=y, the renal hilum is face to (1, -1, 0).',
-        'azimuth': lambda x: (x <= 90) | (315 <= x),
-        'zenith': lambda x: (45 <= x) & (x <= 135)
-    },
-    'type6' :{
-        'destription': 'The renal main axis is z=x, the renal hilum is face to (1, -1, 1).',
-        'azimuth': lambda x: (90 <= x) & (x <= 180),
-        'zenith': lambda x: (45 <= x) & (x <= 135)
-    }
-}
-
  
 class Fuser:
     def __init__(self, 
-                 case_type, 
-                 probe_group: ProbeGroup, 
+                 restriction, 
                  with_pps: bool,
-                 feature_extractor: torch.nn.Module = None, 
-                 affine2d_solver: BaseAffineSolver = None,
-                 tracker: torch.nn.Module = None,
+                 probe_group: ProbeGroup, 
+                 feature_extractor: torch.nn.Module, 
+                 affine2d_solver: BaseAffineSolver=None,
+                 tracker: torch.nn.Module=None,
                  image_size=512,
                  first_label=None,
                  device=0):
@@ -114,7 +77,6 @@ class Fuser:
 
         # PPS
         if with_pps:
-            restriction = restrictions[case_type]
             pps_filtered = restriction['azimuth'](self.probe_azimuth) & restriction['zenith'](self.probe_zenith)
             pps_filtered = torch.from_numpy(pps_filtered).cuda(device)
             self.pps = PPS(probe_group.neighbor, self.feature_pool, pps_filtered)
@@ -205,12 +167,11 @@ def test(fold=0, n_fold=4, ablation=None, validation=False, device=0):
     # test_cases = ['GongDaoming']
     for case_id in test_cases:
         # directories and dataloader
-        case_dir = os.path.join(base_dir, case_id)
         result_dir = paths.RESULTS_DIR if ablation is None else paths.RESULTS_DIR + '_' + ablation
         os.makedirs(result_dir, exist_ok=True)
         fusion_dir = os.path.join(result_dir, case_id, 'fusion')
         os.makedirs(fusion_dir, exist_ok=True)
-        case_dataloader = TestSingleCaseDataloader(case_dir)
+        case_dataloader = PracticalDataloader(os.path.join(base_dir, case_id))
         
         # probes
         probe_path = os.path.join(paths.RESULTS_DIR, case_id, paths.PROBE_FILENAME)
@@ -234,11 +195,8 @@ def test(fold=0, n_fold=4, ablation=None, validation=False, device=0):
         tracker.load_state_dict(torch.load(tracker_path))
         tracker.eval()
 
-        # case type
-        if case_dataloader.prior_info is None:
-            case_type = 'type1'
-        else:
-            case_type = case_dataloader.prior_info['type']
+        # case restriction, including description and 2 lambda exprs
+        case_restriction = case_dataloader.restriction
         
         # the first label
         first_idx = 0
@@ -253,8 +211,8 @@ def test(fold=0, n_fold=4, ablation=None, validation=False, device=0):
         # fuse
         fuser = Fuser(
             probe_group=probe_group,
+            restriction=case_restriction,
             with_pps=(ablation is None or ablation != 'wo_pps'),
-            case_type=case_type,
             feature_extractor=profen,
             affine2d_solver=affine_solver,
             tracker=tracker,

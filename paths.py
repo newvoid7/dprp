@@ -11,4 +11,6 @@ MASK_DIR = os.path.join(DATASET_DIR, '.mask')
 VOLUME_FILENAME = 'orig.nii.gz'
 MESH_FILENAME = 'mesh.gltf'
 PRIOR_INFO_FILENAME = 'prior.json'
+RESTRICTIONS_INFO_FILENAME = 'restrictions.json'
 PROBE_FILENAME = 'probes.npz'
+TEST_DATA_DIR = 'test_data'

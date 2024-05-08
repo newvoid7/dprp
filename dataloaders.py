@@ -25,6 +25,23 @@ def set_fold(fold, num_all_folds):
     train_cases = [paths.ALL_CASES[i] for i in train_indices]
     return train_cases, test_cases
 
+RESTRICTIONS = None
+
+def read_restrictions():
+    restrictions_info_path = os.path.join(paths.DATASET_DIR, paths.RESTRICTIONS_INFO_FILENAME)
+    print(f'Reading restrictions in {restrictions_info_path}.')
+    with open(restrictions_info_path) as f:
+        RESTRICTIONS = json.load(restrictions_info_path)
+        for k, v in RESTRICTIONS.items():
+            # azimuth should be in [0, 360) degrees, elevation should be in [0, 180] degrees.
+            # each lambda expression inputs a np.ndarray and outputs a bool np.ndarray
+            if 0 <= v['azimuth'][0] < v['azimuth'][1] <= 360: 
+                RESTRICTIONS[k]['azimuth'] = lambda x: (v['azimuth'][0] <= x) & (x < v['azimuth'][1])
+            else:
+                RESTRICTIONS[k]['azimuth'] = lambda x: (360 + v['azimuth'][0] <= x) | (x < v['azimuth'][1])
+            RESTRICTIONS[k]['zenith'] = lambda x: (v['zenith'][0] <= x) & (x < v['zenith'][1])
+    return
+
 
 class ProbeDataloader(SlimDataLoaderBase):
     """
@@ -90,7 +107,8 @@ class ProbeDataloader(SlimDataLoaderBase):
         return data
     
     
-class TestSingleCaseDataloader:
+class PracticalDataloader:
+    """ Single Case """
     def __init__(self, case_dir):
         image_fns = [fn for fn in os.listdir(case_dir) if fn.endswith('.png') or fn.endswith('.jpg')]
         image_fns.sort(key=lambda x: int(x[:-4]))
@@ -103,9 +121,12 @@ class TestSingleCaseDataloader:
         prior_info_path = os.path.join(case_dir, paths.PRIOR_INFO_FILENAME)
         if os.path.exists(prior_info_path):
             with open(prior_info_path) as f:
-                self.prior_info = json.load(f)
+                prior_info = json.load(f)
+            if RESTRICTIONS is None:
+                read_restrictions()
+            self.restriction = RESTRICTIONS[self.prior_info['type']]
         else:
-            self.prior_info = None
+            self.restriction = None
         self.fns = image_fns
         
     def image_size(self):
@@ -116,23 +137,32 @@ class TestSingleCaseDataloader:
     
 
 class SimulateDataloader:
-    """ Single case
-    """
+    """ Single case """
     def __init__(self, case_dir) -> None:
-        prior_info_path = os.path.join(case_dir, paths.PRIOR_INFO_FILENAME)
-        if os.path.exists(prior_info_path):
-            with open(prior_info_path) as f:
-                self.prior_info = json.load(f)
-        else:
-            self.prior_info = None
         self.renderer = PRRenderer(os.path.join(case_dir, paths.MESH_FILENAME))
         self.radius_range = (1.2, 3.6)
         self.focus_deviation = 0.0
+        prior_info_path = os.path.join(case_dir, paths.PRIOR_INFO_FILENAME)
+        if os.path.exists(prior_info_path):
+            with open(prior_info_path) as f:
+                prior_info = json.load(f)
+            if RESTRICTIONS is None:
+                read_restrictions()
+            self.restriction = RESTRICTIONS[self.prior_info['type']]
+        else:
+            self.restriction = None
         
     def get_image(self):
         radius = np.random.uniform(*self.radius_range)
         azimuth = np.random.rand() * 2.0 * np.pi
         zenith = np.random.rand() * np.pi
+        inside_pps = False
+        while not inside_pps:
+            if self.restriction['azimuth'](azimuth / np.pi * 180) and self.restriction['zenith'](zenith / np.pi * 180):
+                inside_pps = True
+            else:
+                azimuth = np.random.rand() * 2.0 * np.pi
+                zenith = np.random.rand() * np.pi
         eye = np.asarray([
             radius * np.sin(zenith) * np.cos(azimuth),
             radius * np.sin(zenith) * np.sin(azimuth),

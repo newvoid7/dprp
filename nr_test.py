@@ -81,39 +81,4 @@ class NRRenderer(nn.Module):
         # cv2.imwrite('tmp_nr.png', (image.detach().cpu().numpy().squeeze().transpose((1, 2, 0)) * 255).astype(np.uint8))
         loss = torch.sum((image - self.image_ref[None, :, :]) ** 2)
         return loss
-
-
-if __name__ == '__main__':
-    path = 'tmp.png'
-    dir_loss = []
-    times = []
-    ts = 10
-    for case in ALL_CASES:
-        mesh_path = os.path.join(DATASET_DIR, case, MESH_FILENAME)
-        pg = ProbeGroup(deserialize_path=os.path.join(RESULTS_DIR, case, PROBE_FILENAME))
-        for i in range(ts):
-            random_index = random.randint(0, pg.amount - 1)
-            image = pg.probes[random_index].render
-            gt = pg.probes[random_index].get_orientation()
-            init_eye = gt + np.random.rand(3) - 0.5
-            cv2.imwrite(path, image)
-            solver = NRRenderer(filename_obj=mesh_path, init_eye=init_eye, init_up=[0, 0, 1], 
-                                meshes=[0, 1], path_ref_image=path)
-            solver.cuda()
-            optimizer = torch.optim.Adam(solver.parameters(), lr=0.1)
-            loss = None
-            start = time.time()
-            for i in range(20):
-                optimizer.zero_grad()
-                loss = solver()
-                loss.backward()
-                optimizer.step()
-            end = time.time()
-            print(float(loss))
-            print(str(end - start) + 's')
-            pred_pos = solver.camera_position.detach().cpu().numpy()
-            pred_dir = pred_pos / np.linalg.norm(pred_pos)
-            dir_loss.append(cosine_similarity(gt, pred_dir))
-            times.append(end - start)
-    print('ok')
     

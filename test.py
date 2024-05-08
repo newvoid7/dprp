@@ -1,32 +1,44 @@
 import os
+import time
+import json
 
 import torch
 import numpy as np
 import cv2
-import time
 
 from network.profen import ProFEN
 from network.tracknet import TrackNet
-from dataloaders import set_fold, SimulateDataloader
+from dataloaders import set_fold, SimulateDataloader, RESTRICTIONS
 import paths
 from probe import ProbeGroup
-from agent import AgentTask
-from utils import (RENDER_FLAT_CHARACTERIZER, LABEL_GT_CHARACTERIZER, WHITE, YELLOW, 
+from fusion import Fuser
+from nr_test import NRRenderer
+from utils import (RENDER_FLAT_CHARACTERIZER, 
+                   LABEL_GT_CHARACTERIZER, WHITE, YELLOW, 
                    characterize, 
                    colorize,
                    cosine_similarity, 
                    time_it, 
                    cv2_to_tensor, 
                    evaluate_segmentation, 
-                   crop_patches, 
-                   merge_patches, 
+                   normalize_vec,
                    resize_to_fit)
-from fusion import restrictions
 from pps import PPS
 
 
-@time_it
-def test_profen(fold=0, n_fold=4, ablation=None):
+def generate_test_data(test_times=10):
+    for case in paths.ALL_CASES:
+        os.makedirs(os.path.join(paths.TEST_DATA_DIR, case))
+        case_dataloader = SimulateDataloader(os.path.join(paths.DATASET_DIR, case))
+        viewpoint_gt = {}
+        for i in range(test_times):
+            image, viewpoint, azimuth, zenith = case_dataloader.get_image()
+            cv2.imwrite(f'{paths.TEST_DATA_DIR}/{case}/{i}.png', image)
+            viewpoint_gt[i] = viewpoint.tolist()
+        json.dump(viewpoint_gt, f'{paths.TEST_DATA_DIR}/{case}/viewpoint_ground_truth.json')
+            
+
+def test_profen(fold, n_fold, device=0, ablation=None):
     """ Simulate the intraoperative images with Probe generated images.
     Args:
         fold (int, optional): _description_. Defaults to 0.
@@ -35,88 +47,73 @@ def test_profen(fold=0, n_fold=4, ablation=None):
     Returns:
         []
     """
-    _, test_cases = set_fold(fold, n_fold)
-    agent_task = AgentTask(occlusion_dir=os.path.join(paths.DATASET_DIR, '.mask'))
-    test_loss = []
-    time_cost = []
-    for case_id in test_cases:
-        case_loss = []
+    # feature extractor
+    profen_weight_dir = 'profen' if ablation is None or ablation == 'wo_pps' else 'profen_' + ablation
+    profen_path = f'{paths.WEIGHTS_DIR}/fold{fold}/{profen_weight_dir}/best.pth'
+    profen = ProFEN().cuda(device)
+    profen.load_state_dict(torch.load(profen_path))
+    profen.eval()
+    
+    test_cases = set_fold(fold, n_fold)
+    for case in test_cases:
+        # like in fusion.py
+        # restriction
+        case_type = json.load(os.path.join(paths.DATASET_DIR, case, paths.PRIOR_INFO_FILENAME))['type']
+        restriction = RESTRICTIONS[case_type]
         # probes
-        probe_path = os.path.join(paths.RESULTS_DIR, case_id, paths.PROBE_FILENAME)
+        probe_path = os.path.join(paths.RESULTS_DIR, case, paths.PROBE_FILENAME)
         probe_group = ProbeGroup(deserialize_path=probe_path)
         if ablation is not None and ablation.startswith('div_'):
-            factor = int(ablation[4:])
-            probe_group.sparse(factor)
-        probes = probe_group.probes
-        probe_azimuth = np.asarray([p.get_spcoord_dict()['azimuth'] for p in probes])
-        probe_elevation = np.asarray([p.get_spcoord_dict()['zenith'] for p in probes])
-        
-        # feature extractor
-        profen_weight_dir = 'profen' if ablation is None or ablation == 'wo_pps' else 'profen_' + ablation
-        profen_path = f'{paths.WEIGHTS_DIR}/fold{fold}/{profen_weight_dir}/best.pth'
-        profen = ProFEN().cuda()
-        profen.load_state_dict(torch.load(profen_path))
-        profen.eval()
-        
-        # PPS
-        case_dataloader = SimulateDataloader(os.path.join(paths.DATASET_DIR, case_id))
-        if case_dataloader.prior_info is None:
-            case_type = 'type1'
-        else:
-            case_type = case_dataloader.prior_info['type']
-        restriction = restrictions[case_type]
-        pps_filtered = restriction['azimuth'](probe_azimuth) & restriction['zenith'](probe_elevation)
-        pps_filtered = torch.from_numpy(pps_filtered).cuda()
-        
-        # feature pool
-        image_pool = np.asarray([characterize(p.render.transpose((2, 0, 1)), RENDER_FLAT_CHARACTERIZER)
-                                        for p in probes])
-        image_pool = torch.from_numpy(image_pool)
-        feature_pool = []
-        bs = 128
-        with torch.no_grad():
-            for i in range(len(probes) // bs + 1):
-                batch = image_pool[i * bs : min(i * bs + bs, len(probes))].cuda()
-                pred = profen(batch)
-                feature_pool.append(pred)
-        feature_pool = torch.cat(feature_pool, dim=0)
-        
-        if ablation != 'wo_pps':
-            pps = PPS(probe_group.neighbor, feature_pool, pps_filtered)
-        else:
-            pps = PPS(probe_group.neighbor, feature_pool)
-        
-        # test
-        ts = 100                # test how many times
-        bs = 16                 # batch size
-        start_time = time.time()
-        for t in range(ts):
-            input = []
-            target = []
-            for _ in range(bs):
-                while True:
-                    i, t, a, z = case_dataloader.get_image()
-                    if restriction['azimuth'](a / np.pi * 180) and restriction['zenith'](z / np.pi * 180):
-                        break
-                i = characterize(i.transpose((2, 0, 1)), RENDER_FLAT_CHARACTERIZER)
-                input.append(torch.from_numpy(i))
-                target.append(torch.from_numpy(t.copy()))
-            input = torch.stack(input, dim=0).cuda()
-            target = np.stack(target, axis=0)
-            input = agent_task.apply(input)
-            feature = profen(input)
-            pred = [probes[pps.best(f)].get_orientation() for f in feature]
-            pred = np.stack(pred, axis=0)
-            loss = cosine_similarity(target, pred, dim=1).mean()
-            case_loss.append(loss)
-        test_loss.append(case_loss)
-        end_time = time.time()
-        time_cost.append(end_time - start_time)
-        del case_dataloader
-    return test_loss, time_cost
+            probe_group.sparse(factor=int(ablation[4:]))
+        fuser = Fuser(
+            restriction=restriction,
+            with_pps=ablation is None or ablation != 'wo_pps',
+            probe_group=probe_group,
+            feature_extractor=profen,
+            device=device
+            # following affine2d_solver, tracker, etc are not needed
+        )
+        # test_data
+        fns = [fn for fn in os.listdir(f'{paths.TEST_DATA_DIR}/{case}') if fn.endswith('.png')]
+        gt = json.load(f'{paths.TEST_DATA_DIR}/{case}/viewpoint_ground_truth.json')
+        for i in range(len(fns)):
+            image = cv2.imread(f'{paths.TEST_DATA_DIR}/{case}/{i}.png')
+            with torch.no_grad():
+                feature = fuser.feature_extractor(torch.from_numpy(image).cuda(fuser.device).unsqueeze(0))
+            hit_index = fuser.pps.best(feature)
+            pred = probe_group.probes[hit_index]
+            viewpoint = normalize_vec(-pred.get_eye())
+            image = pred.render
+            cv2.imwrite(f'{paths.TEST_DATA_DIR}/{case}/profen_{ablation}_{i}.png', image)
 
 
-@time_it
+def test_nr(fold, n_fold, device=0):
+    test_cases = set_fold(fold, n_fold)
+    fns = [fn for fn in os.listdir(f'{paths.TEST_DATA_DIR}/{case}') if fn.endswith('.png')]
+    gt = json.load(f'{paths.TEST_DATA_DIR}/{case}/viewpoint_ground_truth.json')
+    for case in test_cases:
+        for i in range(len(fns)):
+            nr = NRRenderer(
+                filename_obj=os.path.join(paths.DATASET_DIR, case, paths.MESH_FILENAME), 
+                meshes=[0, 1], 
+                init_eye=0.02-np.asarray(gt[i]),
+                init_up=[0, 0, 1],
+                path_ref_image=f'{paths.TEST_DATA_DIR}/{case}/{i}.png',
+            )
+            nr.to(device)
+            optimizer = torch.optim.Adam(nr.parameters(), lr=0.1)
+            for iter in range(20):
+                optimizer.zero_grad()
+                loss = nr()
+                loss.backward()
+                optimizer.step()
+            viewpoint = normalize_vec(-nr.camera_position)
+            image = nr.renderer(nr.vertices, nr.faces, nr.textures, mode='label').flip(dims=[1])
+            image = image.detach().cpu().numpy().squeeze().transpose((1, 2, 0)) * 255
+            image = image.astype(np.uint8)
+            cv2.imwrite(f'{paths.TEST_DATA_DIR}/{case}/nr_{i}.png', image)
+
+
 def test_tracknet(fold=0, n_fold=4):
     tracknet = TrackNet().cuda()
     tracknet.load_state_dict(torch.load(os.path.join(paths.WEIGHTS_DIR, f'fold{fold}', 'tracknet', 'best.pth')))
@@ -157,35 +154,8 @@ def test_tracknet(fold=0, n_fold=4):
     return ret_dict
 
 
-def test_ablations():
-    ablations = ['div_4', 'div_9', 'div_16', 'wo_pps', 'wo_agent', 'wo_ref_loss']
-    loss = []
-    time_cost = []
-    loss_abl = {k: [] for k in ablations}
-    time_cost_abl = {k: [] for k in ablations}
-    for fold in range(4):
-        l, t = test_profen(fold)
-        loss += l
-        time_cost += t
-        for k in ablations:
-            l, t = test_profen(fold, ablation=k)
-            loss_abl[k] += l
-            time_cost_abl[k] += t
-    loss = np.asarray([np.asarray(l).mean() for l in loss])
-    time_cost = np.asarray([np.asarray(t).mean() for t in time_cost])
-    for k in ablations:
-        loss_abl[k] = np.asarray([np.asarray(l).mean() for l in loss_abl[k]])
-        time_cost_abl[k] = np.asarray([np.asarray(t).mean() for t in time_cost_abl[k]])
-    print('OK')
-
-
 if __name__ == '__main__':
-    os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+    generate_test_data()
     for f in range(4):
-        m = test_tracknet(f)
-        dices = np.asarray([
-            [m[c][fn]['channel 0']['dice'] 
-            for fn in m[c].keys()] 
-            for c in m.keys()
-        ])
-        print(dices.mean())
+        test_profen(f, 4, 0)
+        test_nr(f, 4, 0)

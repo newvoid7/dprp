@@ -47,10 +47,11 @@ function set_hint() {
 	var hint_str = 'Camera <br> position: ' + vector_to_str(camera.position);
 	hint_str += '<br> direction: ' + vector_to_str(camera.quaternion);
 	hint_str += '<br> fov: ' + camera.fov;
-	var azimuth = Math.atan2( camera.position.x, camera.position.y );
-	var zenith = Math.acos( camera.position.z / camera.position.length() );
-	hint_str += '<br> azimuth: ' + azimuth;
-	hint_str += '<br> zenith: ' + zenith;
+	var azimuth = Math.atan2( camera.position.x, camera.position.y )  / Math.PI * 180;
+	azimuth = (azimuth + 360) % 360; 
+	var zenith = Math.acos( camera.position.z / camera.position.length() )  / Math.PI * 180;
+	hint_str += '<br> azimuth: ' + azimuth.toFixed(2);
+	hint_str += '<br> zenith: ' + zenith.toFixed(2);
 	hint.innerHTML = hint_str;
 }
 

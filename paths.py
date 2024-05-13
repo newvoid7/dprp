@@ -8,9 +8,9 @@ ALL_CASES = [d for d in os.listdir(DATASET_DIR)
              and not d.startswith('.')]
 ALL_CASES.sort()
 MASK_DIR = os.path.join(DATASET_DIR, '.mask')
+RESTRICTIONS_INFO_PATH = os.path.join(DATASET_DIR, 'restrictions.json')
 VOLUME_FILENAME = 'orig.nii.gz'
 MESH_FILENAME = 'mesh.gltf'
 PRIOR_INFO_FILENAME = 'prior.json'
-RESTRICTIONS_INFO_FILENAME = 'restrictions.json'
 PROBE_FILENAME = 'probes.npz'
 TEST_DATA_DIR = 'test_data'

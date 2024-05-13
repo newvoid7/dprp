@@ -28,14 +28,16 @@ from pps import PPS
 
 def generate_test_data(test_times=10):
     for case in paths.ALL_CASES:
-        os.makedirs(os.path.join(paths.TEST_DATA_DIR, case))
+        os.makedirs(os.path.join(paths.TEST_DATA_DIR, case), exist_ok=True)
         case_dataloader = SimulateDataloader(os.path.join(paths.DATASET_DIR, case))
         viewpoint_gt = {}
         for i in range(test_times):
             image, viewpoint, azimuth, zenith = case_dataloader.get_image()
             cv2.imwrite(f'{paths.TEST_DATA_DIR}/{case}/{i}.png', image)
             viewpoint_gt[i] = viewpoint.tolist()
-        json.dump(viewpoint_gt, f'{paths.TEST_DATA_DIR}/{case}/viewpoint_ground_truth.json')
+        with open(f'{paths.TEST_DATA_DIR}/{case}/viewpoint_ground_truth.json', 'w') as f:
+            json.dump(viewpoint_gt, f)
+        del case_dataloader
             
 
 def test_profen(fold, n_fold, device=0, ablation=None):
@@ -54,11 +56,12 @@ def test_profen(fold, n_fold, device=0, ablation=None):
     profen.load_state_dict(torch.load(profen_path))
     profen.eval()
     
-    test_cases = set_fold(fold, n_fold)
+    _, test_cases = set_fold(fold, n_fold)
     for case in test_cases:
         # like in fusion.py
         # restriction
-        case_type = json.load(os.path.join(paths.DATASET_DIR, case, paths.PRIOR_INFO_FILENAME))['type']
+        with open(os.path.join(paths.DATASET_DIR, case, paths.PRIOR_INFO_FILENAME)) as f:
+            case_type = json.load(f)['type']
         restriction = RESTRICTIONS[case_type]
         # probes
         probe_path = os.path.join(paths.RESULTS_DIR, case, paths.PROBE_FILENAME)
@@ -75,7 +78,8 @@ def test_profen(fold, n_fold, device=0, ablation=None):
         )
         # test_data
         fns = [fn for fn in os.listdir(f'{paths.TEST_DATA_DIR}/{case}') if fn.endswith('.png')]
-        gt = json.load(f'{paths.TEST_DATA_DIR}/{case}/viewpoint_ground_truth.json')
+        with open(f'{paths.TEST_DATA_DIR}/{case}/viewpoint_ground_truth.json') as f:
+            gt = json.load(f)
         for i in range(len(fns)):
             image = cv2.imread(f'{paths.TEST_DATA_DIR}/{case}/{i}.png')
             with torch.no_grad():
@@ -87,18 +91,20 @@ def test_profen(fold, n_fold, device=0, ablation=None):
             cv2.imwrite(f'{paths.TEST_DATA_DIR}/{case}/profen_{ablation}_{i}.png', image)
 
 
-def test_nr(fold, n_fold, device=0):
-    test_cases = set_fold(fold, n_fold)
-    fns = [fn for fn in os.listdir(f'{paths.TEST_DATA_DIR}/{case}') if fn.endswith('.png')]
-    gt = json.load(f'{paths.TEST_DATA_DIR}/{case}/viewpoint_ground_truth.json')
+def test_nr(device=0):
+    test_cases = [c for c in os.listdir(paths.TEST_DATA_DIR) 
+                  if os.path.isdir(os.path.join(paths.TEST_DATA_DIR, c))]
     for case in test_cases:
+        fns = [fn for fn in os.listdir(f'{paths.TEST_DATA_DIR}/{case}') if fn.endswith('.png')]
+        with open(f'{paths.TEST_DATA_DIR}/{case}/viewpoint_ground_truth.json') as f:
+            gt = json.load(f)
         for i in range(len(fns)):
             nr = NRRenderer(
                 filename_obj=os.path.join(paths.DATASET_DIR, case, paths.MESH_FILENAME), 
                 meshes=[0, 1], 
-                init_eye=0.02-np.asarray(gt[i]),
+                init_eye=0.02-np.asarray(gt[str(i)]),
                 init_up=[0, 0, 1],
-                path_ref_image=f'{paths.TEST_DATA_DIR}/{case}/{i}.png',
+                path_ref_image=f'{paths.TEST_DATA_DIR}/{case}/{fns[i]}',
             )
             nr.to(device)
             optimizer = torch.optim.Adam(nr.parameters(), lr=0.1)
@@ -107,7 +113,7 @@ def test_nr(fold, n_fold, device=0):
                 loss = nr()
                 loss.backward()
                 optimizer.step()
-            viewpoint = normalize_vec(-nr.camera_position)
+            viewpoint = normalize_vec(-nr.camera_position.data.detach().cpu().numpy())
             image = nr.renderer(nr.vertices, nr.faces, nr.textures, mode='label').flip(dims=[1])
             image = image.detach().cpu().numpy().squeeze().transpose((1, 2, 0)) * 255
             image = image.astype(np.uint8)
@@ -155,7 +161,7 @@ def test_tracknet(fold=0, n_fold=4):
 
 
 if __name__ == '__main__':
-    generate_test_data()
-    for f in range(4):
-        test_profen(f, 4, 0)
-        test_nr(f, 4, 0)
+    # generate_test_data()
+    # for f in range(4):
+        # test_profen(f, 4, 0)
+    test_nr()

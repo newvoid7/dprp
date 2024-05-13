@@ -164,7 +164,6 @@ def test(fold=0, n_fold=4, ablation=None, validation=False, device=0):
         test_cases, _ = set_fold(fold, n_fold)
     else:
         _, test_cases = set_fold(fold, n_fold)
-    # test_cases = ['GongDaoming']
     for case_id in test_cases:
         # directories and dataloader
         result_dir = paths.RESULTS_DIR if ablation is None else paths.RESULTS_DIR + '_' + ablation

@@ -11,7 +11,26 @@ from probe import Probe, DEFAULT_UP, ProbeGroup
 import paths
 from render import PRRenderer
 
-                
+
+RESTRICTIONS = None
+with open(paths.RESTRICTIONS_INFO_PATH) as f:
+    RESTRICTIONS = json.load(f)
+    for k, v in RESTRICTIONS.items():
+        # azimuth should be in [0, 360) degrees, elevation should be in [0, 180] degrees.
+        # each lambda expression inputs a np.ndarray and outputs a bool np.ndarray
+        if 0 <= v['azimuth'][0] < v['azimuth'][1] <= 360: 
+            low = v['azimuth'][0]
+            high = v['azimuth'][1]
+            RESTRICTIONS[k]['azimuth'] = lambda x: (low <= x) & (x < high)
+        else:
+            low = 360 + v['azimuth'][0]
+            high = v['azimuth'][1]
+            RESTRICTIONS[k]['azimuth'] = lambda x: (low <= x) | (x < high)
+        low = v['zenith'][0]
+        high = v['zenith'][1]
+        RESTRICTIONS[k]['zenith'] = lambda x: (low <= x) & (x < high)
+
+
 def set_fold(fold, num_all_folds):
     if fold == -1:      # train with all cases
         return paths.ALL_CASES, []
@@ -24,23 +43,6 @@ def set_fold(fold, num_all_folds):
     train_indices = [i for i in range(len(paths.ALL_CASES)) if i not in test_indices]
     train_cases = [paths.ALL_CASES[i] for i in train_indices]
     return train_cases, test_cases
-
-RESTRICTIONS = None
-
-def read_restrictions():
-    restrictions_info_path = os.path.join(paths.DATASET_DIR, paths.RESTRICTIONS_INFO_FILENAME)
-    print(f'Reading restrictions in {restrictions_info_path}.')
-    with open(restrictions_info_path) as f:
-        RESTRICTIONS = json.load(restrictions_info_path)
-        for k, v in RESTRICTIONS.items():
-            # azimuth should be in [0, 360) degrees, elevation should be in [0, 180] degrees.
-            # each lambda expression inputs a np.ndarray and outputs a bool np.ndarray
-            if 0 <= v['azimuth'][0] < v['azimuth'][1] <= 360: 
-                RESTRICTIONS[k]['azimuth'] = lambda x: (v['azimuth'][0] <= x) & (x < v['azimuth'][1])
-            else:
-                RESTRICTIONS[k]['azimuth'] = lambda x: (360 + v['azimuth'][0] <= x) | (x < v['azimuth'][1])
-            RESTRICTIONS[k]['zenith'] = lambda x: (v['zenith'][0] <= x) & (x < v['zenith'][1])
-    return
 
 
 class ProbeDataloader(SlimDataLoaderBase):
@@ -122,9 +124,7 @@ class PracticalDataloader:
         if os.path.exists(prior_info_path):
             with open(prior_info_path) as f:
                 prior_info = json.load(f)
-            if RESTRICTIONS is None:
-                read_restrictions()
-            self.restriction = RESTRICTIONS[self.prior_info['type']]
+            self.restriction = RESTRICTIONS[prior_info['type']]
         else:
             self.restriction = None
         self.fns = image_fns
@@ -146,9 +146,7 @@ class SimulateDataloader:
         if os.path.exists(prior_info_path):
             with open(prior_info_path) as f:
                 prior_info = json.load(f)
-            if RESTRICTIONS is None:
-                read_restrictions()
-            self.restriction = RESTRICTIONS[self.prior_info['type']]
+            self.restriction = RESTRICTIONS[prior_info['type']]
         else:
             self.restriction = None
         

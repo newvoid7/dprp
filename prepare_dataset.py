@@ -1,8 +1,9 @@
 import os.path
 
 import vtk
-import numpy as np
 from vtk.util.numpy_support import vtk_to_numpy, numpy_to_vtk
+import numpy as np
+import cv2
 
 import paths
 from utils import RENDER_LUT
@@ -211,8 +212,22 @@ class VTKRenderer:
             exporter.Write()
 
 
+def video_to_image_list(video_path, write_dir):
+    frame_count = 1
+    cap = cv2.VideoCapture(video_path)
+    if cap.isOpened():
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            cv2.imwrite(f'{write_dir}/{frame_count:05d}.png', frame)
+            frame_count += 1
+    cap.release
+
+
 if __name__ == '__main__':
     for case in paths.ALL_CASES:
         case_dir = os.path.join(paths.DATASET_DIR, case)
-        r = VTKRenderer(os.path.join(case_dir, paths.VOLUME_FILENAME))
+        r = VTKRenderer(os.path.join(case_dir, paths.PREOPERATIVE_FILENAME))
         r.save_mesh(os.path.join(case_dir, paths.MESH_FILENAME), save_format='gltf')
+        video_to_image_list(os.path.join(case_dir, paths.INTRAOPERATIVE_FILENAME), case_dir)

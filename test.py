@@ -53,7 +53,7 @@ def test_profen(fold, n_fold, device=0, ablation=None):
     profen_weight_dir = 'profen' if ablation is None or ablation == 'wo_pps' else 'profen_' + ablation
     profen_path = f'{paths.WEIGHTS_DIR}/fold{fold}/{profen_weight_dir}/best.pth'
     profen = ProFEN().cuda(device)
-    profen.load_state_dict(torch.load(profen_path))
+    profen.load_state_dict(torch.load(profen_path, map_location=f'cuda:{device}'))
     profen.eval()
     
     _, test_cases = set_fold(fold, n_fold)
@@ -120,9 +120,10 @@ def test_nr(device=0):
             cv2.imwrite(f'{paths.TEST_DATA_DIR}/{case}/nr_{i}.png', image)
 
 
-def test_tracknet(fold=0, n_fold=4):
-    tracknet = TrackNet().cuda()
-    tracknet.load_state_dict(torch.load(os.path.join(paths.WEIGHTS_DIR, f'fold{fold}', 'tracknet', 'best.pth')))
+def test_tracknet(fold=0, n_fold=4, device=0):
+    tracknet = TrackNet().to(device)
+    tracknet.load_state_dict(torch.load(os.path.join(paths.WEIGHTS_DIR, f'fold{fold}', 'tracknet', 'best.pth'),
+                                        map_location=f'cuda:{device}'))
     tracknet.eval()
     test_cases = set_fold(fold, n_fold)[1]
     ret_dict = {}

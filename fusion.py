@@ -182,7 +182,7 @@ def test(fold=0, n_fold=4, ablation=None, validation=False, device=0):
         profen_weight_dir = 'profen' if ablation is None or ablation == 'wo_pps' else 'profen_' + ablation
         profen_path = f'{paths.WEIGHTS_DIR}/fold{fold}/{profen_weight_dir}/best.pth'
         profen = ProFEN().cuda(device)
-        profen.load_state_dict(torch.load(profen_path))
+        profen.load_state_dict(torch.load(profen_path, map_location=f'cuda:{device}'))
         profen.eval()
         
         # affine 2d solver
@@ -191,7 +191,7 @@ def test(fold=0, n_fold=4, ablation=None, validation=False, device=0):
         # segmentation tracker
         tracker_path = f'{paths.WEIGHTS_DIR}/fold{fold}/tracknet/best.pth'
         tracker = TrackNet().cuda(device)
-        tracker.load_state_dict(torch.load(tracker_path))
+        tracker.load_state_dict(torch.load(tracker_path, map_location=f'cuda:{device}'))
         tracker.eval()
 
         # case restriction, including description and 2 lambda exprs

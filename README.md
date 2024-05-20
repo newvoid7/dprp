@@ -1,6 +1,6 @@
 # Deep Prior Rendering Probes (DPRP)
 
-A framework to accomplish the pre- and intra- operative visiual fusion (PIVF) in augmented reality laparoscopic partial nephrectomy (AR-LPN). It uses prior knowledge to train a deep learning network to distinguish 2D render results from different viewpoints, information about each viewpoint is stored in a rendering probe.
+A framework to accomplish the pre- and intra- operative view fusion (PIVF) in augmented reality laparoscopic partial nephrectomy (AR-LPN). It uses rendering probes to store the information of the preoperative 3D model from different viewpoints, trains a deep neural network (ProFEN) to distinguish 2D render results from different viewpoints, and exploits prior knowledge to select the best matching probe from a restricted area. 
 
 ## Data prepare
 The dataset directory should be like the following:

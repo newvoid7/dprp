@@ -120,7 +120,6 @@ class ProfenTrainer(BaseTrainer):
         model_name = 'profen' if ablation is None else 'profen_' + ablation
         save_dir = os.path.join(paths.WEIGHTS_DIR, f'fold{fold}', model_name)
         self.with_agent = ablation != 'wo_agent'
-        self.loss_func = InfoNCELoss().cuda(self.device)
         train_cases, _ = set_fold(fold, n_folds)
         probe_groups = [ProbeGroup(deserialize_path=os.path.join(paths.RESULTS_DIR, case_id, paths.PROBE_FILENAME))
             for case_id in train_cases]
@@ -132,6 +131,7 @@ class ProfenTrainer(BaseTrainer):
         n_iter = self.dataloader.num_total // batch_size
         self.agent = AgentTask(occlusion_dir=paths.MASK_DIR)
         super().__init__(model_name=model_name, model=model, save_dir=save_dir, n_iter=n_iter, **kwargs)
+        self.loss_func = InfoNCELoss().cuda(self.device)
                 
     def train_iter(self) -> float:
         self.optimizer.zero_grad()

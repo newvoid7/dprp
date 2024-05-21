@@ -78,8 +78,9 @@ class NetworkAffineSolver(BaseAffineSolver):
 
 
 class GeometryAffineSolver(BaseAffineSolver):
-    def __init__(self, device=0) -> None:
+    def __init__(self, device=0, rotation_num=180) -> None:
         self.device = device
+        self.rotation_num = rotation_num
         return
     
     @staticmethod
@@ -122,7 +123,8 @@ class GeometryAffineSolver(BaseAffineSolver):
         ty1 = centerh_dst
         scale = (fixed[1].sum() / moving[1].sum()) ** 0.5
         inv_s = 1.0 / scale
-        rot_batch = torch.arange(0, 360, 1, dtype=torch.float32, device='cuda') / 180 * torch.pi
+        rot_batch = torch.arange(0, 2 * torch.pi, 2 * torch.pi / self.rotation_num, 
+                                 dtype=torch.float32, device=self.device)
         '''
         For src => dst: translate_to_origin -> scale -> rotate -> translate_to_new_position,
         Then for dst => src (sample) is reversed.
@@ -139,11 +141,11 @@ class GeometryAffineSolver(BaseAffineSolver):
         mat0_batch = torch.stack((mat00_batch, mat01_batch, mat02_batch), dim=1).cuda(self.device)
         mat1_batch = torch.stack((-mat01_batch, mat00_batch, mat12_batch), dim=1).cuda(self.device)
         mat_batch = torch.stack((mat0_batch, mat1_batch), dim=1)
-        moving_tensor = torch.from_numpy(moving).cuda(self.device).unsqueeze(0).repeat(len(rot_batch), 1, 1, 1)
+        moving_tensor = torch.from_numpy(moving).cuda(self.device)
         fixed_tensor = torch.from_numpy(fixed).cuda(self.device)
-        grid_batch = nnf.affine_grid(mat_batch, moving_tensor.size(), align_corners=False)
-        dst_batch = nnf.grid_sample(moving_tensor, grid_batch, mode='nearest', align_corners=False)
-        del grid_batch      # avoid cuda oom
+        grid_batch = nnf.affine_grid(mat_batch, (self.rotation_num, *moving_tensor.size()), align_corners=False)
+        dst_batch = nnf.grid_sample(moving_tensor.unsqueeze(0).repeat(self.rotation_num, 1, 1, 1), 
+                                    grid_batch, mode='nearest', align_corners=False)
         metric = self.eval_func(dst_batch, fixed_tensor).mean(-1)
         opt_idx = metric.argmax()
         return mat_batch[opt_idx], dst_batch[opt_idx].detach().cpu().numpy()

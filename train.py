@@ -15,7 +15,7 @@ from network.transform import Affine2dPredictor, Affine2dPredictorSlim, Affine2d
 from network.loss import GradientLoss, InfoNCELoss
 from dataloaders import ProbeDataloader, TrackLabelDataloader
 from probe import ProbeGroup
-from utils import time_it
+from utils import timer
 from agent import AgentTask
 import paths
 from dataloaders import set_fold
@@ -59,7 +59,7 @@ class BaseTrainer:
         torch.save(self.model.state_dict(), f'{self.save_dir}/last.pth')
         return np.asarray(epoch_losses)
     
-    @time_it
+    @timer
     def train(self, resume=False):
         """ Call train_epoch
         Args:

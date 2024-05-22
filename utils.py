@@ -10,7 +10,7 @@ import torch
 import SimpleITK as sitk
 
 
-def time_it(func):
+def timer(func):
     """
     A time logger, compute how much time was cost. Use as a decorator (@time_it).
     """

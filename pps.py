@@ -1,7 +1,7 @@
 from torch.nn import CosineSimilarity
 import numpy as np
 
-from utils import time_it
+from utils import timer
 
 
 class PPS:
@@ -17,7 +17,7 @@ class PPS:
         self.sim_func = CosineSimilarity().to(features.device)
         self.mask = mask
         
-    @time_it
+    @timer
     def best(self, target, neighbor_factor=0.5):
         """Find the best matching feature. Considering neighbors.
         Args:

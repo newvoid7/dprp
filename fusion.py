@@ -16,7 +16,7 @@ from utils import (LABEL_GT_CHARACTERIZER,
                    LABEL_PRED_CHARACTERIZER,
                    resize_to_fit, 
                    characterize, 
-                   time_it, 
+                   timer, 
                    images_alpha_lighten, 
                    cv2_to_tensor, 
                    tensor_to_cv2,
@@ -98,7 +98,7 @@ class Fuser:
         # last_frame: np.ndarray (H, W, [BGR])
         self.last_frame = None
 
-    @time_it
+    @timer
     def segmentation(self, new_frame, pad=True):
         if self.last_frame is None:
             return self.last_label
@@ -114,7 +114,7 @@ class Fuser:
             new_label_ch = resize_to_fit(new_label_ch, self.frame_size, pad=not pad, interp='nearest', transposed=True)
             return new_label_ch
 
-    @time_it
+    @timer
     def process_frame(self, frame):
         """
         Use the closest probe in the given range.

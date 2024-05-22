@@ -7,7 +7,7 @@ import numpy as np
 import cv2
 
 import paths
-from utils import time_it
+from utils import timer
 
 
 class PRRenderer:

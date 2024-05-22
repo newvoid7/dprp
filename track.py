@@ -1,6 +1,6 @@
 import cv2
 import numpy as np
-from utils import LABEL_GT_CHARACTERIZER, time_it, matmul_affine_matrices, evaluate_segmentation, characterize
+from utils import LABEL_GT_CHARACTERIZER, timer, matmul_affine_matrices, evaluate_segmentation, characterize
 
 
 class TrackerSubdiv:
@@ -34,7 +34,7 @@ class TrackerSubdiv:
         max = (self.h ** 2 + self.w ** 2) ** 0.5
         return l < max * 0.05
 
-    @time_it
+    @timer
     def track_label(self, next_image):
         kp, des = self.detector.detectAndCompute(next_image, self.extend_mask(self.labels[-1]))
         matches = self.matcher.match(self.des[-1], des)
@@ -111,7 +111,7 @@ class TrackerAverage:
         max = (self.h ** 2 + self.w ** 2) ** 0.5
         return l < max * self.vectorThreshold
         
-    @time_it
+    @timer
     def track_label(self, next_image):
         kp, des = self.detector.detectAndCompute(next_image, 
                                                  self.extend_mask(self.labels[-1]) if self.useMask else None)

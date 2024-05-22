@@ -9,7 +9,7 @@ from render import PRRenderer
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-from utils import (time_it, 
+from utils import (timer, 
                    quaternion_from_view_up, 
                    quaternion_rotate_vec, 
                    quaternion_to_matrix, 
@@ -19,9 +19,6 @@ from utils import (time_it,
                    stitch_images)
 import paths
 
-
-DEFAULT_ORIENTATION = [0, 0, -1]
-DEFAULT_UP = [0, 1, 0]
 
 os.environ['PYOPENGL_PLATFORM'] = 'egl'
 
@@ -34,6 +31,9 @@ class Probe:
             Note that the default view direction is [0, 0, -1] and view up is [0, 1, 0].
         render (np.ndarray): out from PRRenderer, ready for cv2, (H, W, [BGR]), dtype=np.uint8, values in [0, 255]
     """
+    DEFAULT_ORIENTATION = [0, 0, -1]
+    DEFAULT_UP = [0, 1, 0]
+    
     def __init__(self, mesh_path, eye=None, focus=None, up=None, 
                  camera_position=None, camera_quaternion=None, render=None):
         self.mesh_path = mesh_path
@@ -51,7 +51,7 @@ class Probe:
         if eye is not None and focus is not None and up is not None:
             self.camera_quaternion = quaternion_from_view_up(
                 new_view=[focus[i] - eye[i] for i in range(3)], new_up=up,
-                orig_view=DEFAULT_ORIENTATION, orig_up=DEFAULT_UP
+                orig_view=Probe.DEFAULT_ORIENTATION, orig_up=Probe.DEFAULT_UP
             )
         else:
             self.camera_quaternion = None
@@ -64,10 +64,10 @@ class Probe:
         return np.linalg.norm(self.camera_position)
 
     def get_orientation(self):
-        return quaternion_rotate_vec(np.asarray(DEFAULT_ORIENTATION, dtype=float), self.camera_quaternion)
+        return quaternion_rotate_vec(np.asarray(Probe.DEFAULT_ORIENTATION, dtype=float), self.camera_quaternion)
 
     def get_up(self):
-        return quaternion_rotate_vec(np.asarray(DEFAULT_UP, dtype=float), self.camera_quaternion)
+        return quaternion_rotate_vec(np.asarray(Probe.DEFAULT_UP, dtype=float), self.camera_quaternion)
     
     def get_spcoord_dict(self):
         """
@@ -113,7 +113,7 @@ class ProbeGroup:
         elif deserialize_path is not None:
             self.deserialize(deserialize_path)
 
-    @time_it
+    @timer
     def generate(self, amount=600, radius=2.5, grid_type='fib'):
         """
         Generate flat-textured render from the azimuth and elevation samples
@@ -163,7 +163,7 @@ class ProbeGroup:
         self.render_size = self.probes[0].render.shape[:-1]
         self.grid_type = grid_type
 
-    @time_it
+    @timer
     def visualize(self, result_dir, stitch=True, cell_width=200, gap=5):
         """
         Visualize the render of probes to a single image (if stitch) or separate images.
@@ -222,7 +222,7 @@ class ProbeGroup:
         plt.close()
         return
 
-    @time_it
+    @timer
     def serialize(self, write_path):
         """
         Save to file, convert to a dict of np.ndarray to compress efficiently
@@ -237,7 +237,7 @@ class ProbeGroup:
         }
         np.savez_compressed(write_path, **prepared_dict)
 
-    @time_it
+    @timer
     def deserialize(self, read_path):
         """
         Read from file

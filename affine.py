@@ -5,7 +5,7 @@ import torch
 import torch.nn.functional as nnf
 import numpy as np
 
-from utils import cv2_to_tensor, tensor_to_cv2, time_it
+from utils import cv2_to_tensor, tensor_to_cv2, timer
 from network.transform import Affine2dPredictor, Affine2dTransformer
 
 
@@ -37,7 +37,7 @@ class BaseAffineSolver:
             transformed = tensor_to_cv2(transformed)
         return transformed
     
-    @time_it
+    @timer
     def solve_and_affine(self, moving: np.ndarray, fixed: np.ndarray, src: np.ndarray, return_tensor=True):
         """
         Solve the affine transform factors from moving to fixed, and apply it on src.

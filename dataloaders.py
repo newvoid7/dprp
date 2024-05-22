@@ -7,7 +7,7 @@ import numpy as np
 import cv2
 
 from utils import LABEL_GT_CHARACTERIZER, RENDER_FLAT_CHARACTERIZER, cosine_similarity, characterize, normalize_vec
-from probe import Probe, DEFAULT_UP, ProbeGroup
+from probe import Probe, ProbeGroup
 import paths
 from render import PRRenderer
 
@@ -169,7 +169,7 @@ class SimulateDataloader:
         focus = (np.random.rand(3) - 0.5) * 2.0 * self.focus_deviation
         direction = normalize_vec(focus - eye)
         roll = np.random.rand() * 2.0 * np.pi
-        right = normalize_vec(np.cross(direction, DEFAULT_UP))
+        right = normalize_vec(np.cross(direction, Probe.DEFAULT_UP))
         up = normalize_vec(np.cross(right, direction))
         up = np.cos(roll) * up + np.sin(roll) * right
         probe = Probe(None, eye=eye, focus=focus, up=up)
